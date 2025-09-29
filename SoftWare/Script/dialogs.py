@@ -1,0 +1,1263 @@
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
+                            QMessageBox, QWidget, QListWidget, QListWidgetItem, QCheckBox, 
+                            QFileDialog, QFrame, QSizePolicy, QSpacerItem, QScrollArea, QApplication)
+from PyQt6.QtCore import Qt, QTimer, QSize, QRectF, pyqtSignal
+from PyQt6.QtGui import QPixmap, QPainter, QColor
+import os
+import datetime
+
+# 可选导入PIL
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
+class ChatConfigDialog(QDialog):
+    """聊天记录配置对话框"""
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle('聊天记录配置')
+        self.setFixedSize(500, 500)
+        self.config_result = None  # 'dsn', 'file', None
+        
+        self.apply_theme()
+
+    def apply_theme(self):
+        # 自动检测父窗口主题
+        is_dark = False
+        parent = self.parent()
+        if parent and hasattr(parent, 'theme_manager'):
+            is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+        self.setStyleSheet("background-color: %s; color: %s;" % ("#222" if is_dark else "white", "white" if is_dark else "black"))
+        
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+        
+        # 标题
+        title_label = QLabel("选择聊天记录存储方式：")
+        title_label.setStyleSheet("color: black; font-size: 16px; font-weight: bold; margin: 10px;")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 按钮区域
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(15)
+        
+        # 配置DSN按钮
+        self.dsn_button = QPushButton('配置DSN', self)
+        self.dsn_button.setStyleSheet("""
+            QPushButton { 
+                background-color: #4CAF50; 
+                color: white; 
+                border: none; 
+                padding: 12px 20px; 
+                border-radius: 6px; 
+                # 已移除无效CSS和未闭合花括号
+            }
+        """)
+        self.dsn_button.clicked.connect(self.choose_dsn)
+        button_layout.addWidget(self.dsn_button)
+        
+        # 不使用DSN按钮
+        self.file_button = QPushButton('不使用DSN（文件存储）', self)
+        self.file_button.setStyleSheet("""
+            QPushButton { 
+                background-color: #2196F3; 
+                color: white; 
+                border: none; 
+                padding: 12px 20px; 
+                border-radius: 6px; 
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover { 
+                background-color: #1976D2; 
+            }
+        """)
+        self.file_button.clicked.connect(self.choose_file)
+        button_layout.addWidget(self.file_button)
+        
+        layout.addLayout(button_layout)
+        
+        # 取消按钮
+        cancel_button = QPushButton('取消', self)
+        cancel_button.setStyleSheet("""
+            QPushButton { 
+                background-color: #f44336; 
+                color: white; 
+                border: none; 
+                padding: 8px 15px; 
+                border-radius: 3px; 
+                font-size: 12px;
+            }
+            QPushButton:hover { 
+                background-color: #da190b; 
+            }
+        """)
+        cancel_button.clicked.connect(self.reject)
+        layout.addWidget(cancel_button)
+        
+    def choose_dsn(self):
+        self.config_result = 'dsn'
+        self.accept()
+        
+    def choose_file(self):
+        self.config_result = 'file'
+        self.accept()
+    
+    def get_choice(self):
+        """获取用户选择的结果"""
+        return self.config_result
+
+class DSNConfigDialog(QDialog):
+    """DSN配置对话框"""
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle('配置DSN名称')
+        self.setFixedSize(400, 160)
+        self.dsn_name = ''
+        
+        self.apply_theme()
+
+    def apply_theme(self):
+        is_dark = False
+        parent = self.parent()
+        if parent and hasattr(parent, 'theme_manager'):
+            is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+        self.setStyleSheet("background-color: %s; color: %s;" % ("#222" if is_dark else "white", "white" if is_dark else "black"))
+        
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        
+        # 标题
+        title_label = QLabel("配置DSN名称")
+        title_label.setStyleSheet("color: black; font-size: 16px; font-weight: bold; margin: 10px;")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 输入框
+        self.line_edit = QLineEdit(self)
+        self.line_edit.setPlaceholderText("请输入DSN名称...")
+        self.line_edit.setStyleSheet("background-color: white; color: black; border: 1px solid #ccc; padding: 8px; font-size: 14px;")
+        self.line_edit.returnPressed.connect(self.accept)
+        layout.addWidget(self.line_edit)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton('确定', self)
+        ok_button.clicked.connect(self.accept)
+        cancel_button = QPushButton('取消', self)
+        cancel_button.clicked.connect(self.reject)
+        
+        ok_button.setStyleSheet("""QPushButton { background-color: #4CAF50; color: white; border: none; padding: 8px 15px; border-radius: 3px; }QPushButton:hover { background-color: #45a049; }""")
+        cancel_button.setStyleSheet("""QPushButton { background-color: #f44336; color: white; border: none; padding: 8px 15px; border-radius: 3px; }QPushButton:hover { background-color: #da190b; }""")
+
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        # 设置焦点到输入框
+        self.line_edit.setFocus()
+        
+    def accept(self):
+        self.dsn_name = self.line_edit.text().strip()
+        if self.dsn_name:
+            super().accept()
+        else:
+            self.line_edit.setFocus()
+
+def show_connection_result(parent, success, message):
+    """显示连接结果对话框"""
+    msg_box = QMessageBox(parent)
+    if success:
+        msg_box.setWindowTitle("连接成功")
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setText(f"DSN连接成功！\n{message}")
+    else:
+        msg_box.setWindowTitle("连接失败")
+        msg_box.setIcon(QMessageBox.Icon.Critical)
+        msg_box.setText(f"DSN连接失败：\n{message}")
+    
+    msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+    ok_button = msg_box.button(QMessageBox.StandardButton.Ok)
+    ok_button.setText("确定")
+    
+    msg_box.setStyleSheet("""
+        QMessageBox {
+            background-color: white;
+            color: black;
+        }
+        QPushButton {
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            padding: 5px 15px;
+            border-radius: 3px;
+            min-width: 60px;
+        }
+        QPushButton:hover {
+            background-color: #e0e0e0;
+        }
+    """)
+    
+    msg_box.exec()
+
+class CustomPromptDialog(QDialog):
+    """自定义提示词对话框"""
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle('自定义提示词')
+        self.setFixedSize(400, 100)
+        self.prompt = ''
+        
+        self.apply_theme()
+
+    def apply_theme(self):
+        is_dark = False
+        parent = self.parent()
+        if parent and hasattr(parent, 'theme_manager'):
+            is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+        self.setStyleSheet("background-color: %s; color: %s;" % ("#222" if is_dark else "white", "white" if is_dark else "black"))
+        
+        layout = QVBoxLayout(self)
+        self.line_edit = QLineEdit(self)
+        self.line_edit.setPlaceholderText("请输入您的提示词...")
+        self.line_edit.setStyleSheet("background-color: white; color: black; border: 1px solid #ccc;")
+        self.line_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.line_edit.returnPressed.connect(self.accept)
+        layout.addWidget(self.line_edit)
+        
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton('确定', self)
+        ok_button.clicked.connect(self.accept)
+        cancel_button = QPushButton('取消', self)
+        cancel_button.clicked.connect(self.reject)
+        
+        ok_button.setStyleSheet("""QPushButton { background-color: #f0f0f0; border: 1px solid #bbb; }QPushButton:pressed { background-color: #e0e0e0; }""")
+        cancel_button.setStyleSheet("""QPushButton { background-color: #f0f0f0; border: 1px solid #bbb; }QPushButton:pressed { background-color: #e0e0e0; }""")
+
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+    def accept(self):
+        self.prompt = self.line_edit.text().strip()
+        super().accept()
+
+class RenameDialog(QDialog):
+    """重命名对话框"""
+    def __init__(self, current_title, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle('重命名对话')
+        self.setFixedSize(400, 120)
+        self.new_title = ''
+        self.current_title = current_title
+        self.theme_manager = None
+        if parent and hasattr(parent, 'theme_manager'):
+            self.theme_manager = parent.theme_manager
+        
+        self.apply_theme()
+
+    def apply_theme(self):
+        is_dark = bool(self.theme_manager and getattr(self.theme_manager, 'dark_mode_enabled', False))
+        dialog_bg = "#181818" if is_dark else "white"
+        text_color = "#f0f0f0" if is_dark else "black"
+        input_bg = "#222222" if is_dark else "white"
+        input_border = "#333333" if is_dark else "#cccccc"
+        button_bg_primary = "#2f2f2f" if is_dark else "#4CAF50"
+        button_hover_primary = "#3a3a3a" if is_dark else "#45a049"
+        button_bg_secondary = "#3a2b2b" if is_dark else "#f44336"
+        button_hover_secondary = "#453333" if is_dark else "#da190b"
+
+        self.setStyleSheet(f"background-color: {dialog_bg}; color: {text_color};")
+        
+        layout = QVBoxLayout(self)
+        
+        # 提示标签
+        label = QLabel("请输入新的对话名称：")
+        label.setStyleSheet(f"color: {text_color}; font-size: 14px; margin: 5px;")
+        layout.addWidget(label)
+        
+        # 输入框
+        self.line_edit = QLineEdit(self)
+        self.line_edit.setText(self.current_title)
+        self.line_edit.selectAll()  # 选中所有文本
+        self.line_edit.setStyleSheet(
+            f"background-color: {input_bg}; color: {text_color}; border: 1px solid {input_border}; padding: 5px; font-size: 14px;"
+        )
+        self.line_edit.returnPressed.connect(self.accept)
+        layout.addWidget(self.line_edit)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton('确定', self)
+        ok_button.clicked.connect(self.accept)
+        cancel_button = QPushButton('取消', self)
+        cancel_button.clicked.connect(self.reject)
+        
+        ok_button.setStyleSheet(
+            f"""
+            QPushButton {{ background-color: {button_bg_primary}; color: white; border: none; padding: 8px 15px; border-radius: 3px; }}
+            QPushButton:hover {{ background-color: {button_hover_primary}; }}
+        """
+        )
+        cancel_button.setStyleSheet(
+            f"""
+            QPushButton {{ background-color: {button_bg_secondary}; color: white; border: none; padding: 8px 15px; border-radius: 3px; }}
+            QPushButton:hover {{ background-color: {button_hover_secondary}; }}
+        """
+        )
+
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        # 设置焦点到输入框
+        self.line_edit.setFocus()
+        
+    def accept(self):
+        self.new_title = self.line_edit.text().strip()
+        if self.new_title:
+            super().accept()
+        else:
+            self.line_edit.setFocus()
+
+def show_delete_confirmation(parent, conv_title):
+    """显示删除确认对话框"""
+    msg_box = QMessageBox(parent)
+    msg_box.setWindowTitle("确认删除")
+    msg_box.setText("所有对话历史都将被清除且无法恢复\n确认删除该对话吗？")
+    msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+    
+    # 设置按钮文本为中文
+    yes_button = msg_box.button(QMessageBox.StandardButton.Yes)
+    yes_button.setText("确认删除")
+    no_button = msg_box.button(QMessageBox.StandardButton.No)
+    no_button.setText("取消")
+    
+    # 自动检测父窗口主题
+    is_dark = False
+    if parent and hasattr(parent, 'theme_manager'):
+        is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+    msg_box.setStyleSheet("""
+        QMessageBox {
+            background-color: %s;
+            color: %s;
+        }
+        QPushButton {
+            background-color: %s;
+            color: %s;
+        }
+        QPushButton:hover {
+            background-color: %s;
+        }
+    """ % (
+        "#222" if is_dark else "white",
+        "white" if is_dark else "black",
+        "#444" if is_dark else "#f0f0f0",
+        "white" if is_dark else "black",
+        "#333" if is_dark else "#e0e0e0"
+    ))
+    
+    return msg_box.exec() == QMessageBox.StandardButton.Yes
+
+
+class ToggleSwitch(QCheckBox):
+    """自绘胶囊切换开关"""
+
+    def __init__(self, parent=None, width=58, height=30, margin=3):
+        super().__init__(parent)
+        self._width = width
+        self._height = height
+        self._margin = margin
+        self.setFixedSize(self._width, self._height)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+    def sizeHint(self):
+        return QSize(self._width, self._height)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        track_rect = QRectF(0, (self.height() - self._height) / 2, self._width, self._height)
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        if self.isEnabled():
+            track_color = QColor("#3DC06C") if self.isChecked() else QColor("#D8D8D8")
+        else:
+            track_color = QColor("#BEBEBE")
+
+        painter.setBrush(track_color)
+        painter.drawRoundedRect(track_rect, self._height / 2, self._height / 2)
+
+        knob_diameter = self._height - self._margin * 2
+        if self.isChecked():
+            knob_x = track_rect.right() - knob_diameter - self._margin
+        else:
+            knob_x = track_rect.left() + self._margin
+
+        knob_rect = QRectF(knob_x, track_rect.top() + self._margin, knob_diameter, knob_diameter)
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawEllipse(knob_rect)
+
+        # 细边框与投影
+        painter.setPen(QColor(0, 0, 0, 20))
+        painter.drawEllipse(knob_rect)
+
+
+class SettingsDialog(QDialog):
+    """设置对话框 - 700x500大小，左右分区 2:3，包含聊天记录管理"""
+    
+    # 聊天记录配置信号
+    chat_config_dsn_signal = pyqtSignal()
+    chat_config_file_signal = pyqtSignal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle('设置')
+        self.setFixedSize(700, 500)
+        self.setMinimumSize(700, 500)
+        self.setMaximumSize(700, 500)
+        # 禁用调整大小
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint)
+        self.setObjectName('SettingsDialog')
+
+        # 获取主题管理器
+        self.theme_manager = None
+        if hasattr(parent, 'get_theme_manager'):
+            self.theme_manager = parent.get_theme_manager()
+        elif hasattr(parent, 'theme_manager'):
+            self.theme_manager = parent.theme_manager
+
+        if self.theme_manager:
+            self.theme_manager.theme_changed.connect(self.on_theme_manager_dark_mode_changed)
+
+        self.dark_mode_switch = None
+        self.auto_mode_switch = None
+
+        # 初始化设置状态
+        self.api_key = ""
+        self.api_url = ""
+
+        # UI 组件引用
+        self.left_widget = None
+        self.right_container = None
+
+        self.init_ui()
+        self.apply_base_theme_styles()
+
+    def is_dark_mode_enabled(self):
+        if self.theme_manager:
+            return bool(getattr(self.theme_manager, 'dark_mode_enabled', False))
+        return False
+
+    def get_theme_palette(self):
+        if self.is_dark_mode_enabled():
+            return {
+                "dialog_bg": "#181818",
+                "right_bg": "#181818",
+                "left_bg": "#1f1f1f",
+                "left_border": "#2a2a2a",
+                "text_primary": "#f0f0f0",
+                "text_secondary": "#b3b3b3",
+                "text_muted": "#909090",
+                "divider": "#2a2a2a",
+                "card_bg": "#1f1f1f",
+                "card_alt_bg": "#1d1d1d",
+                "card_border": "#2d2d2d",
+                "button_bg": "#2b2b2b",
+                "button_text": "#f5f5f5",
+                "button_border": "#3a3a3a",
+                "button_hover": "#343434",
+                "highlight": "#3a3a3a",
+                "highlight_text": "#ffffff",
+                "highlight_hover": "#2e2e2e",
+                "input_bg": "#222222",
+                "input_border": "#333333",
+                "accent_success": {"bg": "#2f2f2f", "hover": "#393939", "text": "#f5f5f5"},
+                "accent_info": {"bg": "#2f2f2f", "hover": "#3b3b3b", "text": "#f5f5f5"},
+                "accent_warning": {"bg": "#34302a", "hover": "#3f3932", "text": "#f5f5f5"},
+            }
+        return {
+            "dialog_bg": "#ffffff",
+            "right_bg": "#ffffff",
+            "left_bg": "#f5f5f5",
+            "left_border": "#dddddd",
+            "text_primary": "#333333",
+            "text_secondary": "#666666",
+            "text_muted": "#888888",
+            "divider": "#dddddd",
+            "card_bg": "#fdfdfd",
+            "card_alt_bg": "#f9f9f9",
+            "card_border": "#e4e4e4",
+            "button_bg": "#f7f7f7",
+            "button_text": "#333333",
+            "button_border": "#cccccc",
+            "button_hover": "#e0e0e0",
+            "highlight": "#4CAF50",
+            "highlight_text": "#ffffff",
+            "highlight_hover": "#e0e0e0",
+            "input_bg": "#ffffff",
+            "input_border": "#cccccc",
+            "accent_success": {"bg": "#4CAF50", "hover": "#45a049", "text": "#ffffff"},
+            "accent_info": {"bg": "#2196F3", "hover": "#1976D2", "text": "#ffffff"},
+            "accent_warning": {"bg": "#FF9800", "hover": "#F57C00", "text": "#ffffff"},
+        }
+
+    def build_button_style(self, *, padding="10px 15px", radius=6, font_size="13px", bold=False, accent=None):
+        palette = self.get_theme_palette()
+        accent_colors = None
+        if accent == "success":
+            accent_colors = palette["accent_success"]
+        elif accent == "info":
+            accent_colors = palette["accent_info"]
+        elif accent == "warning":
+            accent_colors = palette["accent_warning"]
+
+        if accent_colors and not self.is_dark_mode_enabled():
+            bg = accent_colors["bg"]
+            hover = accent_colors["hover"]
+            text_color = accent_colors["text"]
+            border = "none"
+        else:
+            bg = palette["button_bg"]
+            hover = palette["button_hover"]
+            text_color = palette["button_text"]
+            border = f"1px solid {palette['button_border']}"
+
+        font_weight = "font-weight: bold;" if bold else ""
+
+        return f"""
+            QPushButton {{
+                background-color: {bg};
+                color: {text_color};
+                border: {border};
+                padding: {padding};
+                border-radius: {radius}px;
+                font-size: {font_size};
+                {font_weight}
+            }}
+            QPushButton:hover {{
+                background-color: {hover};
+            }}
+        """
+
+    def apply_base_theme_styles(self):
+        palette = self.get_theme_palette()
+        self.setStyleSheet(f"""
+            QDialog#SettingsDialog {{
+                background-color: {palette['dialog_bg']};
+                color: {palette['text_primary']};
+            }}
+            QDialog#SettingsDialog QLabel {{
+                color: {palette['text_primary']};
+            }}
+        """)
+
+        if self.left_widget:
+            self.left_widget.setStyleSheet(f"background-color: {palette['left_bg']}; border-right: 1px solid {palette['left_border']};")
+
+        if self.parent_list:
+            self.parent_list.setStyleSheet(f"""
+                QListWidget {{
+                    background-color: transparent;
+                    border: none;
+                    font-size: 14px;
+                }}
+                QListWidget::item {{
+                    padding: 12px;
+                    border-bottom: 1px solid {palette['divider']};
+                    color: {palette['text_primary']};
+                }}
+                QListWidget::item:selected {{
+                    background-color: {palette['highlight']};
+                    color: {palette['highlight_text']};
+                }}
+                QListWidget::item:hover {{
+                    background-color: {palette['highlight_hover']};
+                }}
+            """)
+
+        if self.right_widget:
+            self.right_widget.setStyleSheet(f"background-color: {palette['right_bg']};")
+
+        if self.right_container:
+            self.right_container.setStyleSheet(f"background-color: {palette['right_bg']};")
+
+        if self.scroll_area:
+            self.scroll_area.setStyleSheet(f"""
+                QScrollArea {{
+                    border: none;
+                    background-color: {palette['right_bg']};
+                }}
+                QScrollArea > QWidget > QWidget {{
+                    background-color: {palette['right_bg']};
+                }}
+            """)
+        
+    def init_ui(self):
+        """初始化UI"""
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 左区域（父项功能） - 宽度比例 2
+        self.left_widget = QWidget()
+        self.left_widget.setFixedWidth(200)  # 700 * 2/7 = 200
+        left_layout = QVBoxLayout(self.left_widget)
+        left_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # 父项列表
+        self.parent_list = QListWidget()
+        
+        # 添加父项 - 确保不重复添加
+        self.parent_list.clear()  # 先清空列表防止重复
+        general_item = QListWidgetItem("通用设置")
+        chat_record_item = QListWidgetItem("聊天记录管理")  # 新增聊天记录管理父项
+        api_item = QListWidgetItem("API")
+        self.parent_list.addItem(general_item)
+        self.parent_list.addItem(chat_record_item)
+        self.parent_list.addItem(api_item)
+        self.parent_list.currentItemChanged.connect(self.on_parent_item_changed)
+        
+        left_layout.addWidget(self.parent_list)
+        
+        # 右区域（子项功能） - 宽度比例 3，添加滚动区域
+        self.right_container = QWidget()
+        self.right_container.setFixedWidth(500)  # 700 * 3/7 = 300
+        
+        # 创建滚动区域
+        self.scroll_area = QScrollArea(self.right_container)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # 滚动内容容器
+        self.right_widget = QWidget()
+        self.right_layout = QVBoxLayout(self.right_widget)
+        self.right_layout.setContentsMargins(15, 15, 15, 15)
+        
+        # 将内容容器放入滚动区域
+        self.scroll_area.setWidget(self.right_widget)
+        
+        # 右侧容器布局
+        right_layout = QVBoxLayout(self.right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.scroll_area)
+        
+        layout.addWidget(self.left_widget)
+        layout.addWidget(self.right_container)
+        
+        # 初始化显示第一个父项的子项 - 在布局完成后进行
+        QTimer.singleShot(100, self.init_default_view)
+    
+    def init_default_view(self):
+        """初始化默认视图 - 显示第一个父项的子项"""
+        print("初始化默认视图...")
+        
+        if self.parent_list.count() > 0:
+            # 设置第一项为选中状态
+            self.parent_list.setCurrentRow(0)
+
+            # 如果信号尚未渲染内容，主动触发一次
+            if self.right_layout and self.right_layout.count() == 0:
+                current_item = self.parent_list.currentItem()
+                if current_item:
+                    self.switch_to_parent_content(current_item.text())
+
+            print("默认视图初始化完成")
+        else:
+            print("警告: 父项列表为空")
+    
+    def on_parent_item_changed(self, current, previous):
+        """父项切换事件 - 改进的切换逻辑"""
+        if current is None:
+            print("父项切换: current为None，跳过处理")
+            return
+        
+        current_text = current.text()
+        previous_text = previous.text() if previous else "None"
+        print(f"父项切换: {previous_text} -> {current_text}")
+        
+        # 防止重复调用
+        if previous and current_text == previous_text:
+            print("重复调用，跳过处理")
+            return
+        
+        # 立即显示对应的子项内容，无需清空和延迟
+        self.switch_to_parent_content(current_text)
+        
+    def switch_to_parent_content(self, parent_name):
+        """切换到指定父项的内容"""
+        print(f"立即切换到: {parent_name}")
+        
+        # 清空当前内容
+        self.clear_right_area()
+        
+        # 立即显示对应内容，不使用延迟
+        if parent_name == "通用设置":
+            self.show_general_settings()
+        elif parent_name == "聊天记录管理":
+            self.show_chat_record_settings()
+        elif parent_name == "API":
+            self.show_api_settings()
+        else:
+            print(f"未知的父项: {parent_name}")
+        
+        # 强制更新UI
+        if hasattr(self, 'right_widget') and self.right_widget:
+            self.right_widget.update()
+        if hasattr(self, 'scroll_area') and self.scroll_area:
+            self.scroll_area.update()
+        QApplication.processEvents()
+    
+    def clear_right_area(self):
+        """清空右区域 - 安全版本"""
+        if self.right_layout is None:
+            print("警告: right_layout 不存在，跳过清理")
+            return
+            
+        initial_count = self.right_layout.count()
+        if initial_count == 0:
+            print("右区域已经为空，跳过清理")
+            return
+            
+        print(f"清理右区域，当前有 {initial_count} 个组件")
+        
+        # 安全地清理所有组件
+        try:
+            while self.right_layout.count() > 0:
+                item = self.right_layout.takeAt(0)
+                if item and item.widget():
+                    widget = item.widget()
+                    widget.setParent(None)
+                    widget.deleteLater()
+            print("右区域清理完成")
+        except Exception as e:
+            print(f"清理过程中发生错误: {e}")
+            # 如果清理失败，保持当前布局并记录错误
+            pass
+
+        if hasattr(self, 'dark_mode_switch'):
+            self.dark_mode_switch = None
+        if hasattr(self, 'auto_mode_switch'):
+            self.auto_mode_switch = None
+    
+    def show_general_settings(self):
+        """显示通用设置子项"""
+        print("=== 开始显示通用设置 ===")
+        
+        # 检查布局是否存在
+        if self.right_layout is None:
+            print("错误: right_layout 不存在，无法显示通用设置")
+            return
+        
+        # 确保内容区域干净
+        if self.right_layout.count() > 0:
+            self.clear_right_area()
+
+        # 重置控件引用，避免使用过期组件
+        self.dark_mode_switch = None
+        self.auto_mode_switch = None
+
+        palette = self.get_theme_palette()
+
+        # 标题
+        title_label = QLabel("通用设置")
+        title_label.setStyleSheet(
+            f"font-size: 16px; font-weight: bold; color: {palette['text_primary']}; margin-bottom: 10px;"
+        )
+        self.right_layout.addWidget(title_label)
+        print("✓ 已添加通用设置标题")
+
+        # 深色模式与自动模式配置
+        dark_mode_frame = QFrame()
+        dark_mode_frame.setStyleSheet(
+            f"border: 1px solid {palette['card_border']}; border-radius: 8px; padding: 14px; margin: 8px 0; background-color: {palette['card_bg']};"
+        )
+        dark_mode_layout = QVBoxLayout(dark_mode_frame)
+        dark_mode_layout.setSpacing(12)
+
+        # 深色模式开关行
+        dark_toggle_row = QHBoxLayout()
+        dark_toggle_row.setContentsMargins(0, 0, 0, 0)
+
+        dark_mode_label = QLabel("深色模式")
+        dark_mode_label.setStyleSheet(
+            f"font-size: 14px; color: {palette['text_primary']};"
+        )
+        dark_toggle_row.addWidget(dark_mode_label)
+        dark_toggle_row.addStretch()
+
+        self.dark_mode_switch = ToggleSwitch()
+        if self.theme_manager:
+            self.dark_mode_switch.setChecked(self.theme_manager.dark_mode_enabled)
+
+        self.dark_mode_switch.toggled.connect(self.on_dark_mode_toggled)
+
+        dark_toggle_row.addWidget(self.dark_mode_switch)
+        dark_mode_layout.addLayout(dark_toggle_row)
+
+        dark_mode_hint = QLabel("启用后界面将使用深色主题，适合低光环境。")
+        dark_mode_hint.setStyleSheet(
+            f"font-size: 12px; color: {palette['text_muted']};"
+        )
+        dark_mode_hint.setWordWrap(True)
+        dark_mode_layout.addWidget(dark_mode_hint)
+
+        # 自动模式开关行
+        mode_layout = QHBoxLayout()
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+
+        mode_label = QLabel("跟随系统时间自动切换")
+        mode_label.setStyleSheet(
+            f"font-size: 14px; color: {palette['text_primary']};"
+        )
+        mode_layout.addWidget(mode_label)
+        mode_layout.addStretch()
+
+        self.auto_mode_switch = ToggleSwitch()
+        if self.theme_manager:
+            self.auto_mode_switch.setChecked(self.theme_manager.auto_dark_mode)
+
+        self.auto_mode_switch.toggled.connect(self.on_auto_mode_toggled)
+
+        mode_layout.addWidget(self.auto_mode_switch)
+
+        dark_mode_layout.addLayout(mode_layout)
+
+        auto_mode_hint = QLabel("开启后将根据系统时间自动切换深浅色主题。")
+        auto_mode_hint.setStyleSheet(
+            f"font-size: 12px; color: {palette['text_muted']};"
+        )
+        auto_mode_hint.setWordWrap(True)
+        dark_mode_layout.addWidget(auto_mode_hint)
+
+        self.right_layout.addWidget(dark_mode_frame)
+
+        # 自定义背景设置
+        bg_frame = QFrame()
+        bg_frame.setStyleSheet(
+            f"border: 1px solid {palette['card_border']}; border-radius: 8px; padding: 14px; margin: 8px 0; background-color: {palette['card_bg']};"
+        )
+        bg_layout = QVBoxLayout(bg_frame)
+        bg_layout.setSpacing(10)
+        
+        bg_label = QLabel("自定义背景")
+        bg_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {palette['text_primary']};"
+        )
+        bg_layout.addWidget(bg_label)
+        
+        self.bg_path_button = QPushButton("选择背景路径")
+        self.bg_path_button.setStyleSheet(
+            self.build_button_style(padding="8px 15px", radius=4, font_size="12px", accent="info")
+        )
+        self.bg_path_button.clicked.connect(self.choose_background)
+        bg_layout.addWidget(self.bg_path_button)
+        
+        # 显示当前背景路径
+        self.bg_path_label = QLabel("未选择背景")
+        self.bg_path_label.setStyleSheet(
+            f"font-size: 11px; color: {palette['text_secondary']}; margin-top: 5px;"
+        )
+        self.bg_path_label.setWordWrap(True)
+        
+        # 设置当前背景状态
+        if self.theme_manager and self.theme_manager.custom_background_path:
+            self.bg_path_label.setText(f"已选择: {os.path.basename(self.theme_manager.custom_background_path)}")
+            
+        bg_layout.addWidget(self.bg_path_label)
+        
+        self.right_layout.addWidget(bg_frame)
+        
+        # 添加弹性空间
+        self.right_layout.addStretch()
+
+        print("=== 通用设置界面构建完成 ===")
+    
+    def show_chat_record_settings(self):
+        """显示聊天记录管理子项"""
+        print("=== 开始显示聊天记录管理 ===")
+        
+        # 检查布局是否存在
+        if self.right_layout is None:
+            print("错误: right_layout 不存在，无法显示聊天记录管理")
+            return
+        
+        palette = self.get_theme_palette()
+
+        # 标题
+        title_label = QLabel("聊天记录管理")
+        title_label.setStyleSheet(
+            f"font-size: 16px; font-weight: bold; color: {palette['text_primary']}; margin-bottom: 15px;"
+        )
+        self.right_layout.addWidget(title_label)
+        
+        # 存储方式选择
+        storage_frame = QFrame()
+        storage_frame.setStyleSheet(
+            f"border: 1px solid {palette['card_border']}; border-radius: 8px; padding: 14px; margin: 8px 0; background-color: {palette['card_bg']};"
+        )
+        storage_layout = QVBoxLayout(storage_frame)
+        storage_layout.setSpacing(12)
+        
+        storage_label = QLabel("存储方式选择")
+        storage_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {palette['text_primary']}; margin-bottom: 8px;"
+        )
+        storage_layout.addWidget(storage_label)
+        
+        # DSN数据库存储按钮
+        self.dsn_config_button = QPushButton("🗄️ 配置DSN数据库存储")
+        self.dsn_config_button.setStyleSheet(
+            self.build_button_style(padding="10px 15px", radius=6, font_size="13px", bold=True, accent="success")
+        )
+        self.dsn_config_button.clicked.connect(self.handle_dsn_config)
+        storage_layout.addWidget(self.dsn_config_button)
+        
+        dsn_hint = QLabel("使用数据库存储聊天记录，支持高性能查询和云端同步。")
+        dsn_hint.setStyleSheet(
+            f"font-size: 11px; color: {palette['text_secondary']}; margin-left: 10px;"
+        )
+        storage_layout.addWidget(dsn_hint)
+        
+        # 文件存储按钮
+        self.file_config_button = QPushButton("📁 使用本地文件存储")
+        self.file_config_button.setStyleSheet(
+            self.build_button_style(padding="10px 15px", radius=6, font_size="13px", bold=True, accent="info")
+        )
+        self.file_config_button.clicked.connect(self.handle_file_config)
+        storage_layout.addWidget(self.file_config_button)
+        
+        file_hint = QLabel("使用本地文件存储聊天记录，简单方便，无需配置数据库。")
+        file_hint.setStyleSheet(
+            f"font-size: 11px; color: {palette['text_secondary']}; margin-left: 10px;"
+        )
+        storage_layout.addWidget(file_hint)
+        
+        self.right_layout.addWidget(storage_frame)
+        
+        # 存储状态显示
+        status_frame = QFrame()
+        status_frame.setStyleSheet(
+            f"border: 1px solid {palette['card_border']}; border-radius: 8px; padding: 14px; margin: 8px 0; background-color: {palette['card_alt_bg']};"
+        )
+        status_layout = QVBoxLayout(status_frame)
+        
+        status_label = QLabel("当前存储状态")
+        status_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {palette['text_primary']}; margin-bottom: 8px;"
+        )
+        status_layout.addWidget(status_label)
+        
+        self.storage_status_label = QLabel("正在检测存储配置...")
+        self.storage_status_label.setStyleSheet(
+            f"font-size: 12px; color: {palette['text_secondary']}; padding: 5px;"
+        )
+        status_layout.addWidget(self.storage_status_label)
+        
+        # 更新存储状态显示
+        self.update_storage_status()
+        
+        self.right_layout.addWidget(status_frame)
+        
+        # 数据管理操作
+        manage_frame = QFrame()
+        manage_frame.setStyleSheet(
+            f"border: 1px solid {palette['card_border']}; border-radius: 8px; padding: 14px; margin: 8px 0; background-color: {palette['card_bg']};"
+        )
+        manage_layout = QVBoxLayout(manage_frame)
+        
+        manage_label = QLabel("数据管理操作")
+        manage_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {palette['text_primary']}; margin-bottom: 8px;"
+        )
+        manage_layout.addWidget(manage_label)
+        
+        # 数据迁移按钮
+        migrate_button = QPushButton("🔄 数据迁移")
+        migrate_button.setStyleSheet(
+            self.build_button_style(padding="8px 12px", radius=4, font_size="12px", accent="warning")
+        )
+        migrate_button.clicked.connect(self.show_migrate_options)
+        manage_layout.addWidget(migrate_button)
+        
+        migrate_hint = QLabel("在不同存储方式之间迁移聊天数据。")
+        migrate_hint.setStyleSheet(
+            f"font-size: 11px; color: {palette['text_secondary']}; margin-left: 10px;"
+        )
+        manage_layout.addWidget(migrate_hint)
+        
+        self.right_layout.addWidget(manage_frame)
+        
+        # 添加弹性空间
+        self.right_layout.addStretch()
+        
+        print("=== 聊天记录管理界面构建完成 ===")
+    
+    def handle_dsn_config(self):
+        """处理DSN配置"""
+        self.chat_config_dsn_signal.emit()
+        
+    def handle_file_config(self):
+        """处理文件存储配置"""
+        self.chat_config_file_signal.emit()
+        
+    def update_storage_status(self):
+        """更新存储状态显示"""
+        # 这里可以检查当前的存储配置并显示状态
+        # 暂时显示默认状态
+        self.storage_status_label.setText("📁 当前使用：本地文件存储")
+        
+    def show_migrate_options(self):
+        """显示数据迁移选项"""
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("数据迁移")
+        msg_box.setText("数据迁移功能将在存储配置完成后提供。\n请先配置您需要的存储方式。")
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        palette = self.get_theme_palette()
+        is_dark = self.is_dark_mode_enabled()
+        msg_box.setStyleSheet("""
+            QMessageBox {{
+                background-color: {bg};
+                color: {fg};
+            }}
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {btn_fg};
+                border: 1px solid {btn_border};
+                padding: 5px 15px;
+                border-radius: 4px;
+                min-width: 60px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+            }}
+        """.format(
+            bg=palette['card_bg'] if is_dark else "white",
+            fg=palette['text_primary'] if is_dark else "black",
+            btn_bg=palette['button_bg'] if is_dark else "#f0f0f0",
+            btn_fg=palette['button_text'] if is_dark else "black",
+            btn_border=palette['button_border'] if is_dark else "#cccccc",
+            btn_hover=palette['button_hover'] if is_dark else "#e0e0e0"
+        ))
+        msg_box.exec()
+    
+    def show_api_settings(self):
+        """显示API设置子项"""
+        palette = self.get_theme_palette()
+        # 标题
+        title_label = QLabel("API设置")
+        title_label.setStyleSheet(
+            f"font-size: 16px; font-weight: bold; color: {palette['text_primary']}; margin-bottom: 15px;"
+        )
+        self.right_layout.addWidget(title_label)
+        
+        # API Key设置
+        api_key_label = QLabel("设置您的API_Key（回车确认）：")
+        api_key_label.setStyleSheet(
+            f"font-size: 13px; color: {palette['text_primary']}; margin-bottom: 5px;"
+        )
+        self.right_layout.addWidget(api_key_label)
+        
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setPlaceholderText("请输入API Key...")
+        self.api_key_input.setStyleSheet(
+            f"""
+            QLineEdit {{ 
+                background-color: {palette['input_bg']}; 
+                border: 1px solid {palette['input_border']}; 
+                padding: 8px; 
+                font-size: 12px; 
+                border-radius: 4px;
+                color: {palette['text_primary']};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {palette['highlight']};
+            }}
+        """
+        )
+        self.api_key_input.returnPressed.connect(self.save_api_key)
+        self.right_layout.addWidget(self.api_key_input)
+        
+        # 间距
+        spacer1 = QSpacerItem(0, 15, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.right_layout.addItem(spacer1)
+        
+        # API URL设置
+        api_url_label = QLabel("设置您的模型URL（回车确认）：")
+        api_url_label.setStyleSheet(
+            f"font-size: 13px; color: {palette['text_primary']}; margin-bottom: 5px;"
+        )
+        self.right_layout.addWidget(api_url_label)
+        
+        self.api_url_input = QLineEdit()
+        self.api_url_input.setPlaceholderText("请输入模型URL...")
+        self.api_url_input.setStyleSheet(
+            f"""
+            QLineEdit {{ 
+                background-color: {palette['input_bg']}; 
+                border: 1px solid {palette['input_border']}; 
+                padding: 8px; 
+                font-size: 12px; 
+                border-radius: 4px;
+                color: {palette['text_primary']};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {palette['highlight']};
+            }}
+        """
+        )
+        self.api_url_input.returnPressed.connect(self.save_api_url)
+        self.right_layout.addWidget(self.api_url_input)
+        
+        # 添加弹性空间
+        self.right_layout.addStretch()
+    
+    def on_dark_mode_toggled(self, checked):
+        """深色模式开关切换 - 增强响应版本"""
+        print(f"🔘 深色模式状态变化: {checked}, theme_manager: {self.theme_manager}")
+        
+        if not self.theme_manager:
+            print("❌ 警告: theme_manager 为 None")
+            return
+        
+        # 使用增强的主题管理器进行快速切换
+        if hasattr(self.theme_manager, 'enable_dark_mode_fast'):
+            print("⚡ 使用快速主题切换")
+            self.theme_manager.enable_dark_mode_fast(checked)
+        else:
+            print("🐌 使用标准主题切换")
+            self.theme_manager.enable_dark_mode(checked)
+
+    def on_auto_mode_toggled(self, enabled):
+        """自动模式开关切换 - 增强响应版本"""
+        print(f"🔘 自动模式状态变化: {enabled}")
+        
+        # 立即提供用户反馈
+        if enabled:
+            print("⏰ 正在启用自动模式...")
+            self.show_auto_mode_prompt()
+        else:
+            print("⏹️ 正在禁用自动模式...")
+        
+        if not self.theme_manager:
+            print("❌ 警告: theme_manager 为 None")
+            return
+            
+        # 异步设置自动模式，避免阻塞UI
+        QTimer.singleShot(0, lambda: self.theme_manager.set_auto_mode(enabled))
+
+    def on_theme_manager_dark_mode_changed(self, enabled):
+        """主题管理器回调，保持开关与全局状态同步"""
+        if self.dark_mode_switch is not None:
+            self.dark_mode_switch.blockSignals(True)
+            self.dark_mode_switch.setChecked(bool(enabled))
+            self.dark_mode_switch.blockSignals(False)
+
+        self.apply_base_theme_styles()
+
+        current_item = self.parent_list.currentItem() if self.parent_list else None
+        if current_item:
+            current_text = current_item.text()
+            QTimer.singleShot(0, lambda: self.switch_to_parent_content(current_text))
+
+    def show_auto_mode_prompt(self):
+        """展示自动模式提示信息，使用浅色样式"""
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("自动模式")
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setText("主题会根据系统时间自动切换深浅色模式。")
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        palette = self.get_theme_palette()
+        is_dark = self.is_dark_mode_enabled()
+        msg_box.setStyleSheet("""
+            QMessageBox {{
+                background-color: {bg};
+                color: {fg};
+            }}
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {btn_fg};
+                border: 1px solid {btn_border};
+                padding: 5px 15px;
+                border-radius: 4px;
+                min-width: 60px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+            }}
+        """.format(
+            bg=palette['card_bg'] if is_dark else "white",
+            fg=palette['text_primary'] if is_dark else "black",
+            btn_bg=palette['button_bg'] if is_dark else "#f0f0f0",
+            btn_fg=palette['button_text'] if is_dark else "black",
+            btn_border=palette['button_border'] if is_dark else "#cccccc",
+            btn_hover=palette['button_hover'] if is_dark else "#e0e0e0"
+        ))
+        msg_box.exec()
+        
+    def choose_background(self):
+        """选择背景图片"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "选择背景图片", 
+            "", 
+            "图片文件 (*.png *.jpg *.jpeg)"
+        )
+        
+        if file_path:
+            # 检查图片格式和分辨率
+            if self.validate_background_image(file_path):
+                self.bg_path_label.setText(f"已选择: {os.path.basename(file_path)}")
+                if self.theme_manager:
+                    self.theme_manager.set_custom_background(file_path)
+                    # 立即应用背景并刷新UI
+                    QTimer.singleShot(100, self.theme_manager.apply_background)
+                print(f"背景已设置: {file_path}")
+                QMessageBox.information(self, "背景设置", f"背景已更新为:\n{os.path.basename(file_path)}")
+            else:
+                QMessageBox.warning(self, "格式错误", "只支持1920*1080分辨率下的png或jpg文件哦！")
+    
+    def validate_background_image(self, file_path):
+        """验证背景图片格式和分辨率"""
+        try:
+            # 检查文件扩展名
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext not in ['.png', '.jpg', '.jpeg']:
+                return False
+            
+            # 使用PIL检查分辨率（如果安装了PIL）
+            if PIL_AVAILABLE:
+                try:
+                    with Image.open(file_path) as img:
+                        width, height = img.size
+                        return width == 1920 and height == 1080
+                except Exception:
+                    return False
+            else:
+                # 如果没有PIL，使用PyQt6检查
+                pixmap = QPixmap(file_path)
+                return pixmap.width() == 1920 and pixmap.height() == 1080
+                
+        except Exception:
+            return False
+    
+    def save_api_key(self):
+        """保存API Key"""
+        self.api_key = self.api_key_input.text().strip()
+        if self.api_key:
+            print(f"API Key已保存: {self.api_key}")
+        # TODO: 实际保存到配置文件
+        
+    def save_api_url(self):
+        """保存API URL"""
+        self.api_url = self.api_url_input.text().strip()
+        if self.api_url:
+            print(f"API URL已保存: {self.api_url}")
+        # TODO: 实际保存到配置文件
