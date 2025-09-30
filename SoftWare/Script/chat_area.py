@@ -88,33 +88,20 @@ class ChatArea(QWidget):
         self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
-        # 主内容容器 - 水平布局分为两列
+        # 主内容容器 - 单列垂直布局
         self.chat_content = QWidget()
-        main_chat_layout = QHBoxLayout(self.chat_content)
-        main_chat_layout.setContentsMargins(0, 0, 0, 0)
-        main_chat_layout.setSpacing(0)
+        self.chat_content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         
-        # 左列：Agent区域
-        self.agent_column = QWidget()
-        self.agent_column.setMinimumWidth(50)
-        self.agent_layout = QVBoxLayout(self.agent_column)
+        # 使用单个垂直布局管理所有消息行
+        self.agent_layout = QVBoxLayout(self.chat_content)
         self.agent_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        # 移除spacing设置，我们会在每个气泡后添加垂直间距
         self.agent_layout.setSpacing(0)
-        self.agent_layout.setContentsMargins(0, 0, 5, 0)
+        self.agent_layout.setContentsMargins(8, 8, 8, 8)
         
-        # 右列：用户区域
-        self.user_column = QWidget()
-        self.user_column.setMinimumWidth(50)
-        self.user_layout = QVBoxLayout(self.user_column)
-        self.user_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
-        # 移除spacing设置，我们会在每个气泡后添加垂直间距
-        self.user_layout.setSpacing(0)
-        self.user_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 等宽分配
-        main_chat_layout.addWidget(self.agent_column, 1)
-        main_chat_layout.addWidget(self.user_column, 1)
+        # 保持向后兼容的引用
+        self.agent_column = self.chat_content
+        self.user_column = self.chat_content
+        self.user_layout = self.agent_layout
         
         self.scroll.setWidget(self.chat_content)
         layout.addWidget(self.scroll, 1)
@@ -135,8 +122,8 @@ class ChatArea(QWidget):
         self.scroll.verticalScrollBar().valueChanged.connect(self._on_scroll)
         
         # 鼠标进入滚动区域时显示滚动条
-        self.scroll.enterEvent = self._on_scroll_area_enter
-        self.scroll.leaveEvent = self._on_scroll_area_leave
+        self.scroll.enterEvent = lambda event: self._on_scroll_area_enter(event)
+        self.scroll.leaveEvent = lambda event: self._on_scroll_area_leave(event)
         
     def _on_scroll(self):
         """滚动时显示滚动条"""
@@ -242,20 +229,32 @@ class ChatArea(QWidget):
         return '\n' not in text and '\r' not in text and len(text) < 50
     
     def add_user_bubble(self, user_text):
-        """添加用户气泡到右列，并确保其始终右对齐"""
-        # 创建用户气泡
-        user_bubble = CopyableBubbleLabel(user_text, side='right', parent=self.user_column)
+        """添加用户气泡 - 使用优化的布局系统：内容包裹优先，最大宽度限制"""
+        # 创建消息行容器
+        message_row = QWidget()
+        message_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        row_layout = QHBoxLayout(message_row)
+        row_layout.setContentsMargins(8, 4, 8, 4)
+        row_layout.setSpacing(0)
         
-        # 判断单行文本居中显示，多行文本保持右对齐
-        if self._is_single_line_text(user_text):
-            user_bubble.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        else:
-            user_bubble.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-            
-        bubble_width = self._calculate_bubble_width(user_text, 'user')
+        # 创建用户气泡标签
+        user_bubble = CopyableBubbleLabel(user_text, side='right', parent=message_row)
+        user_bubble.setWordWrap(True)
         
-        # 使用setFixedWidth来完全固定气泡的宽度
-        user_bubble.setFixedWidth(bubble_width)
+        # 设置气泡最大宽度为聊天区域宽度的60%
+        max_width = int((self.width() - 32) * 0.6)  # 减去边距
+        user_bubble.setMaximumWidth(max_width)
+        
+        # 关键：设置为Preferred策略以实现动态收缩
+        user_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        
+        # 手动换行特殊处理
+        if '\n' in user_text:
+            # 包含换行符的文本，强制接近最大宽度
+            user_bubble.setMinimumWidth(int(max_width * 0.95))
+            # 或者使用stretch方式
+            # user_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+            # user_bubble.sizePolicy().setHorizontalStretch(1)
         
         # 设置气泡索引和存储
         bubble_index = len(self.message_bubbles)
@@ -264,7 +263,7 @@ class ChatArea(QWidget):
             'bubble': user_bubble,
             'role': 'user',
             'content': user_text,
-            'column': 'user'
+            'container': message_row
         })
         
         # 用户气泡样式
@@ -274,38 +273,41 @@ class ChatArea(QWidget):
                 border-radius: 20px; 
                 color: #222; 
                 font-size: 18px; 
-                padding: 10px 15px;
-                min-height: 20px;
+                padding: 12px 16px;
+                margin: 4px;
             }
         """)
         
-        # 创建一个水平布局来包裹气泡，并用弹簧将其推到右侧
-        bubble_container_layout = QHBoxLayout()
-        bubble_container_layout.addStretch(1)  # 添加弹簧
-        bubble_container_layout.addWidget(user_bubble)
-        bubble_container_layout.setContentsMargins(0, 0, 0, 0)
+        # 添加左侧弹簧实现右对齐
+        left_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        row_layout.addItem(left_spacer)
+        row_layout.addWidget(user_bubble)
         
-        self.user_layout.addLayout(bubble_container_layout)
+        # 添加消息行到主布局
+        self.agent_layout.addWidget(message_row)
         
-        # 在气泡下方添加固定高度的间距 (43px)
-        spacer_item = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.user_layout.addSpacerItem(spacer_item)
+        # 添加消息间间距
+        spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.agent_layout.addItem(spacer_item)
         
-        # 在左列添加占位符保持同步 - 使用气泡本身的高度
-        spacer = QLabel()
-        spacer.setFixedHeight(user_bubble.sizeHint().height())
-        spacer.setStyleSheet("background: transparent;")
-        self.agent_layout.addWidget(spacer)
-        
-        # 在左列占位符下方也添加同样的间距
-        spacer_item2 = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.agent_layout.addSpacerItem(spacer_item2)
+        # 触发重新计算和重绘
+        message_row.adjustSize()
+        user_bubble.adjustSize()
+        self.chat_content.update()
         
         self._scroll_to_bottom_precisely()
 
     def add_thinking_bubble(self):
-        """添加思考动画到左列"""
-        thinking_gif_label = QLabel(self.agent_column)
+        """添加思考动画 - 使用新的自适应布局系统"""
+        # 创建思考动画行容器
+        thinking_row = QWidget()
+        thinking_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        row_layout = QHBoxLayout(thinking_row)
+        row_layout.setContentsMargins(8, 4, 8, 4)
+        row_layout.setSpacing(0)
+        
+        # 创建思考动画标签
+        thinking_gif_label = QLabel(thinking_row)
         thinking_gif_label.setFixedSize(60, 60)
         gif_path = resource_path(SPINNER_GIF_URL)
         movie = QMovie(gif_path)
@@ -313,113 +315,84 @@ class ChatArea(QWidget):
         thinking_gif_label.setMovie(movie)
         movie.start()
         
-        thinking_gif_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.agent_layout.addWidget(thinking_gif_label)
+        # 设置动画样式
+        thinking_gif_label.setStyleSheet("""
+            QLabel {
+                background: rgba(30,144,255, 0.1);
+                border-radius: 30px;
+                margin: 4px;
+            }
+        """)
         
-        # 在思考动画下方添加固定高度的间距
-        spacer_item = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.agent_layout.addSpacerItem(spacer_item)
+        # 左对齐思考动画
+        row_layout.addWidget(thinking_gif_label)
+        right_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        row_layout.addItem(right_spacer)
         
-        # 在右列添加占位符
-        spacer = QLabel()
-        spacer.setMinimumHeight(60)
-        spacer.setStyleSheet("background: transparent;")
-        self.user_layout.addWidget(spacer)
+        # 添加到主布局
+        self.agent_layout.addWidget(thinking_row)
         
-        # 在右列占位符下方也添加同样的间距
-        spacer_item2 = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.user_layout.addSpacerItem(spacer_item2)
+        # 添加间距
+        spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.agent_layout.addItem(spacer_item)
         
         self._scroll_to_bottom_precisely()
         
         self.current_thinking_bubble = thinking_gif_label
+        self.current_thinking_container = thinking_row
         return thinking_gif_label
 
     def remove_thinking_bubble(self):
-        """手动移除thinking bubble及其相关spacers"""
-        if hasattr(self, 'current_thinking_bubble') and self.current_thinking_bubble:
-            # 找到并移除左侧的 thinking 动画及其后面的spacer
-            thinking_index = -1
+        """移除思考动画及其容器"""
+        if hasattr(self, 'current_thinking_container') and self.current_thinking_container:
+            # 找到并移除思考动画容器及其后面的spacer
             for i in range(self.agent_layout.count()):
                 item = self.agent_layout.itemAt(i)
-                if item and item.widget() == self.current_thinking_bubble:
-                    thinking_index = i
+                if item and item.widget() == self.current_thinking_container:
+                    # 移除容器
                     item.widget().deleteLater()
                     self.agent_layout.takeAt(i)
+                    
+                    # 移除后面的spacer（如果存在）
+                    if i < self.agent_layout.count():
+                        next_item = self.agent_layout.itemAt(i)
+                        if next_item and next_item.spacerItem():
+                            self.agent_layout.takeAt(i)
                     break
-            
-            # 移除thinking动画后面的spacer
-            if thinking_index >= 0 and thinking_index < self.agent_layout.count():
-                spacer_item = self.agent_layout.itemAt(thinking_index)
-                if spacer_item and spacer_item.spacerItem():
-                    self.agent_layout.takeAt(thinking_index)
-            
-            # 找到并移除右侧对应的占位符及其spacer
-            user_spacer_index = -1
-            for i in range(self.user_layout.count()):
-                item = self.user_layout.itemAt(i)
-                if item and item.widget() and item.widget().minimumHeight() == 60:
-                    user_spacer_index = i
-                    item.widget().deleteLater()
-                    self.user_layout.takeAt(i)
-                    break
-            
-            # 移除右侧占位符后面的spacer
-            if user_spacer_index >= 0 and user_spacer_index < self.user_layout.count():
-                spacer_item = self.user_layout.itemAt(user_spacer_index)
-                if spacer_item and spacer_item.spacerItem():
-                    self.user_layout.takeAt(user_spacer_index)
             
             self.current_thinking_bubble = None
+            self.current_thinking_container = None
 
     def update_chat_display(self, reply_text):
-        """更新Agent回复到左列"""        
-        # 移除thinking动画及其对应的spacer
-        if hasattr(self, 'current_thinking_bubble') and self.current_thinking_bubble:
-            # 找到并移除左侧的 thinking 动画及其后面的spacer
-            thinking_index = -1
-            for i in range(self.agent_layout.count()):
-                item = self.agent_layout.itemAt(i)
-                if item and item.widget() == self.current_thinking_bubble:
-                    thinking_index = i
-                    item.widget().deleteLater()
-                    self.agent_layout.takeAt(i)
-                    break
-            
-            # 移除thinking动画后面的spacer
-            if thinking_index >= 0 and thinking_index < self.agent_layout.count():
-                spacer_item = self.agent_layout.itemAt(thinking_index)
-                if spacer_item and spacer_item.spacerItem():
-                    self.agent_layout.takeAt(thinking_index)
-            
-            # 找到并移除右侧对应的占位符及其spacer
-            user_spacer_index = -1
-            for i in range(self.user_layout.count()):
-                item = self.user_layout.itemAt(i)
-                if item and item.widget() and item.widget().minimumHeight() == 60:
-                    user_spacer_index = i
-                    item.widget().deleteLater()
-                    self.user_layout.takeAt(i)
-                    break
-            
-            # 移除右侧占位符后面的spacer
-            if user_spacer_index >= 0 and user_spacer_index < self.user_layout.count():
-                spacer_item = self.user_layout.itemAt(user_spacer_index)
-                if spacer_item and spacer_item.spacerItem():
-                    self.user_layout.takeAt(user_spacer_index)
+        """更新Agent回复 - 使用优化的布局系统：内容包裹优先，最大宽度限制"""        
+        # 移除thinking动画
+        self.remove_thinking_bubble()
 
-        # 创建Agent气泡
-        agent_bubble = CopyableBubbleLabel(reply_text, side='left', parent=self.agent_column)
+        # 创建消息行容器
+        message_row = QWidget()
+        message_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        row_layout = QHBoxLayout(message_row)
+        row_layout.setContentsMargins(8, 4, 8, 4)
+        row_layout.setSpacing(0)
         
-        # 判断单行文本居中显示，多行文本保持左对齐
-        if self._is_single_line_text(reply_text):
-            agent_bubble.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        else:
-            agent_bubble.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-            
-        bubble_width = self._calculate_bubble_width(reply_text, 'agent')
+        # 创建Agent气泡标签
+        agent_bubble = CopyableBubbleLabel(reply_text, side='left', parent=message_row)
+        agent_bubble.setWordWrap(True)
         
-        agent_bubble.setFixedWidth(bubble_width)
+        # 设置气泡最大宽度为聊天区域宽度的60%
+        max_width = int((self.width() - 32) * 0.6)  # 减去边距
+        agent_bubble.setMaximumWidth(max_width)
+        
+        # 关键：设置为Preferred策略以实现动态收缩
+        agent_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        
+        # 手动换行特殊处理
+        if '\n' in reply_text:
+            # 包含换行符的文本，强制接近最大宽度
+            agent_bubble.setMinimumWidth(int(max_width * 0.95))
+            # 或者使用stretch方式
+            # agent_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+            # agent_bubble.sizePolicy().setHorizontalStretch(1)
         
         # 设置气泡索引和存储
         bubble_index = len(self.message_bubbles)
@@ -428,142 +401,125 @@ class ChatArea(QWidget):
             'bubble': agent_bubble,
             'role': 'assistant',
             'content': reply_text,
-            'column': 'agent'
+            'container': message_row
         })
         
         # Agent气泡样式
         agent_bubble.setStyleSheet("""
             QLabel {
                 background: rgb(30,144,255); 
-                border-radius: 15px; 
+                border-radius: 20px; 
                 color: #222; 
                 font-size: 18px; 
-                padding: 8px 12px;
-                min-height: 20px;
-                white-space: pre-wrap;
+                padding: 12px 16px;
+                margin: 4px;
             }
         """)
         
-        self.agent_layout.addWidget(agent_bubble)
+        # 添加气泡和右侧弹簧实现左对齐
+        row_layout.addWidget(agent_bubble)
+        right_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        row_layout.addItem(right_spacer)
         
-        # 在气泡下方添加固定高度的间距
-        spacer_item = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.agent_layout.addSpacerItem(spacer_item)
+        # 添加消息行到主布局
+        self.agent_layout.addWidget(message_row)
         
-        # 在右列添加占位符保持同步
-        spacer = QLabel()
-        spacer.setFixedHeight(agent_bubble.sizeHint().height())
-        spacer.setStyleSheet("background: transparent;")
-        self.user_layout.addWidget(spacer)
+        # 添加消息间间距
+        spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.agent_layout.addItem(spacer_item)
         
-        # 在右列占位符下方也添加同样的间距
-        spacer_item2 = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.user_layout.addSpacerItem(spacer_item2)
+        # 触发重新计算和重绘
+        message_row.adjustSize()
+        agent_bubble.adjustSize()
+        self.chat_content.update()
         
         self._scroll_to_bottom_precisely()
         self.current_thinking_bubble = None
 
     def add_history_bubble(self, role, content):
-        """添加历史记录气泡到对应列，并确保用户气泡始终右对齐"""
+        """添加历史记录气泡 - 使用优化的布局系统：内容包裹优先，最大宽度限制"""
         bubble_index = len(self.message_bubbles)
         
+        # 创建消息行容器
+        message_row = QWidget()
+        message_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        row_layout = QHBoxLayout(message_row)
+        row_layout.setContentsMargins(8, 4, 8, 4)
+        row_layout.setSpacing(0)
+        
+        # 创建气泡标签
+        bubble = CopyableBubbleLabel(content, side='right' if role == 'user' else 'left', parent=message_row)
+        bubble.setWordWrap(True)
+        
+        # 设置气泡最大宽度为聊天区域宽度的60%
+        max_width = int((self.width() - 32) * 0.6)  # 减去边距
+        bubble.setMaximumWidth(max_width)
+        
+        # 关键：设置为Preferred策略以实现动态收缩
+        bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        
+        # 手动换行特殊处理
+        if '\n' in content:
+            # 包含换行符的文本，强制接近最大宽度
+            bubble.setMinimumWidth(int(max_width * 0.95))
+        
+        bubble.set_bubble_index(bubble_index)
+        
         if role == 'user':
-            # 用户历史气泡到右列
-            bubble = CopyableBubbleLabel(content, side='right', parent=self.user_column)
-            
-            # 判断单行文本居中显示，多行文本保持右对齐
-            if self._is_single_line_text(content):
-                bubble.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            else:
-                bubble.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-                
-            bubble_width = self._calculate_bubble_width(content, 'user')
-            
+            # 用户气泡样式和右对齐
             bubble.setStyleSheet("""
                 QLabel {
                     background: rgb(50,205,50); 
                     border-radius: 20px; 
                     color: #222; 
                     font-size: 18px; 
-                    padding: 10px 15px;
-                    min-height: 20px;
+                    padding: 12px 16px;
+                    margin: 4px;
                 }
             """)
             
-            bubble.setFixedWidth(bubble_width)
-            bubble.set_bubble_index(bubble_index)
-            
-            # 创建一个水平布局来包裹气泡，并用弹簧将其推到右侧
-            bubble_container_layout = QHBoxLayout()
-            bubble_container_layout.addStretch(1)
-            bubble_container_layout.addWidget(bubble)
-            bubble_container_layout.setContentsMargins(0, 0, 0, 0)
-            
-            self.user_layout.addLayout(bubble_container_layout)
-            
-            # 在用户气泡下方添加固定高度的间距
-            spacer_item = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            self.user_layout.addSpacerItem(spacer_item)
-            
-            # 左列占位符 - 直接使用气泡的高度
-            spacer = QLabel()
-            spacer.setFixedHeight(bubble.sizeHint().height())
-            spacer.setStyleSheet("background: transparent;")
-            self.agent_layout.addWidget(spacer)
-            
-            # 在左列占位符下方也添加同样的间距
-            spacer_item2 = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            self.agent_layout.addSpacerItem(spacer_item2)
+            # 左侧弹簧 + 气泡 = 右对齐
+            left_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            row_layout.addItem(left_spacer)
+            row_layout.addWidget(bubble)
             
         else:
-            # Agent历史气泡到左列
-            bubble = CopyableBubbleLabel(content, side='left', parent=self.agent_column)
-            
-            # 判断单行文本居中显示，多行文本保持左对齐
-            if self._is_single_line_text(content):
-                bubble.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            else:
-                bubble.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-                
-            bubble_width = self._calculate_bubble_width(content, 'agent')
-            
+            # Agent气泡样式和左对齐
             bubble.setStyleSheet("""
                 QLabel {
                     background: rgb(30,144,255); 
-                    border-radius: 15px; 
+                    border-radius: 20px; 
                     color: #222; 
                     font-size: 18px; 
-                    padding: 8px 12px;
-                    min-height: 20px;
-                    white-space: pre-wrap;
+                    padding: 12px 16px;
+                    margin: 4px;
                 }
             """)
             
-            bubble.setFixedWidth(bubble_width)
-            bubble.set_bubble_index(bubble_index)
-            
-            self.agent_layout.addWidget(bubble)
-            
-            # 在AI气泡下方添加固定高度的间距
-            spacer_item = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            self.agent_layout.addSpacerItem(spacer_item)
-            
-            # 右列占位符
-            spacer = QLabel()
-            spacer.setFixedHeight(bubble.sizeHint().height())
-            spacer.setStyleSheet("background: transparent;")
-            self.user_layout.addWidget(spacer)
-            
-            # 在右列占位符下方也添加同样的间距
-            spacer_item2 = QSpacerItem(1, 43, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            self.user_layout.addSpacerItem(spacer_item2)
+            # 气泡 + 右侧弹簧 = 左对齐
+            row_layout.addWidget(bubble)
+            right_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            row_layout.addItem(right_spacer)
         
+        # 存储气泡信息
         self.message_bubbles.append({
             'bubble': bubble,
             'role': role,
             'content': content,
-            'column': 'user' if role == 'user' else 'agent'
+            'container': message_row
         })
+        
+        # 添加消息行到主布局
+        self.agent_layout.addWidget(message_row)
+        
+        # 添加消息间间距
+        spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.agent_layout.addItem(spacer_item)
+        
+        # 触发重新计算和重绘
+        message_row.adjustSize()
+        bubble.adjustSize()
+        self.chat_content.update()
         
         self._scroll_to_bottom_precisely()
 
@@ -599,33 +555,40 @@ class ChatArea(QWidget):
         print("聊天历史显示已清空")
 
     def resizeEvent(self, event):
-        """窗口大小改变时的处理 - 保持气泡固定宽度"""
+        """窗口大小改变时重新计算气泡最大宽度"""
         super().resizeEvent(event)
         print(f"Chat area resized: {self.width()}x{self.height()}")
 
-        # 注释掉重新计算气泡宽度的代码，确保气泡一旦创建就保持固定宽度
-        # 这样可以防止第一句话的气泡在添加长文本后发生位置变化
-        # if hasattr(self, 'message_bubbles'):
-        #     for bubble_info in self.message_bubbles:
-        #         if 'bubble' in bubble_info and 'content' in bubble_info:
-        #             bubble = bubble_info['bubble']
-        #             content = bubble_info['content']
-        #             role = bubble_info.get('role', None)
-        #
-        #             try:
-        #                 if role == 'user':
-        #                     bubble_width = self._measure_user_text_size(content)
-        #                 else:
-        #                     bubble_width = self._measure_agent_text_size(content)
-        #
-        #                 bubble.setMaximumWidth(bubble_width)
-        #                 bubble.updateGeometry()
-        #             except Exception as e:
-        #                 print(f"重新计算气泡宽度失败: {e}")
+        # 重新计算所有气泡的最大宽度（60%规则）
+        new_max_width = int((self.width() - 32) * 0.6)  # 减去边距
+        
+        if hasattr(self, 'message_bubbles'):
+            for bubble_info in self.message_bubbles:
+                if 'bubble' in bubble_info:
+                    bubble = bubble_info['bubble']
+                    content = bubble_info.get('content', '')
+                    try:
+                        bubble.setMaximumWidth(new_max_width)
+                        
+                        # 重新应用换行特殊处理
+                        if '\n' in content:
+                            bubble.setMinimumWidth(int(new_max_width * 0.95))
+                        else:
+                            bubble.setMinimumWidth(0)  # 重置最小宽度，允许收缩
+                        
+                        bubble.adjustSize()
+                        
+                        # 更新容器
+                        if 'container' in bubble_info:
+                            bubble_info['container'].adjustSize()
+                            
+                    except Exception as e:
+                        print(f"重新计算气泡宽度失败: {e}")
 
-        # 只进行基本的重新布局，不改变气泡宽度
+        # 强制重新布局和重绘
         try:
-            self.chat_content.updateGeometry()
+            self.chat_content.adjustSize()
+            self.chat_content.update()
             QApplication.processEvents()
         except Exception as e:
             print(f"强制重绘聊天区域失败: {e}")
@@ -675,10 +638,21 @@ class ChatArea(QWidget):
         QApplication.processEvents()
         
     def _remove_bubbles_from_ui(self, bubbles):
-        """从布局中删除指定的气泡"""
+        """从布局中删除指定的气泡容器"""
         print(f"开始删除气泡，总数: {len(bubbles)}")
         
-        # 处理左列（Agent列）
+        # 收集需要删除的容器
+        containers_to_remove = []
+        
+        for bubble in bubbles:
+            for bubble_info in self.message_bubbles:
+                if bubble_info.get('bubble') == bubble:
+                    container = bubble_info.get('container')
+                    if container:
+                        containers_to_remove.append(container)
+                    break
+        
+        # 从布局中删除容器
         i = 0
         while i < self.agent_layout.count():
             item = self.agent_layout.itemAt(i)
@@ -686,109 +660,19 @@ class ChatArea(QWidget):
                 i += 1
                 continue
                 
-            # 检查是否是要删除的气泡
-            if item.widget() in bubbles:
-                print(f"在Agent列找到要删除的气泡")
+            # 检查是否是要删除的容器
+            if item.widget() in containers_to_remove:
+                print(f"找到要删除的消息容器")
                 item.widget().deleteLater()
                 self.agent_layout.takeAt(i)
-                if i < self.agent_layout.count():  # 确保还有项可以删除
-                    self.agent_layout.takeAt(i)  # 删除间距项
-                continue  # 不增加i，因为我们刚刚删除了项
-            elif isinstance(item.widget(), QLabel) and "background: transparent" in item.widget().styleSheet():
-                # 这是一个占位符，检查右侧对应的气泡是否在要删除列表中
-                for j in range(self.user_layout.count()):
-                    user_item = self.user_layout.itemAt(j)
-                    if not user_item:
-                        continue
-                        
-                    # 检查用户布局中的项
-                    if user_item.layout():
-                        for k in range(user_item.layout().count()):
-                            layout_item = user_item.layout().itemAt(k)
-                            if layout_item and layout_item.widget() in bubbles:
-                                print(f"删除Agent列的占位符 (对应用户气泡)")
-                                item.widget().deleteLater()
-                                self.agent_layout.takeAt(i)
-                                if i < self.agent_layout.count():
-                                    self.agent_layout.takeAt(i)
-                                break
-                        else:
-                            continue
-                        break
-                    elif user_item.widget() in bubbles:
-                        print(f"删除Agent列的占位符 (对应用户气泡)")
-                        item.widget().deleteLater()
+                
+                # 删除后面的间距项
+                if i < self.agent_layout.count():
+                    next_item = self.agent_layout.itemAt(i)
+                    if next_item and next_item.spacerItem():
                         self.agent_layout.takeAt(i)
-                        if i < self.agent_layout.count():
-                            self.agent_layout.takeAt(i)
-                        break
-                else:
-                    i += 1
-                    continue
-                # 如果找到并删除了，不增加i
-                continue
-            i += 1
+                continue  # 不增加i，因为我们刚刚删除了项
             
-        # 处理右列（User列）- 完全重写这部分以确保可靠删除
-        i = 0
-        while i < self.user_layout.count():
-            item = self.user_layout.itemAt(i)
-            if not item:
-                i += 1
-                continue
-                
-            deleted = False
-                
-            # 处理布局（用户气泡通常包含在布局中）
-            if item.layout():
-                # 检查布局中的每个组件
-                for j in range(item.layout().count()):
-                    layout_item = item.layout().itemAt(j)
-                    if not layout_item or not layout_item.widget():
-                        continue
-                        
-                    if layout_item.widget() in bubbles:
-                        print(f"在用户列布局中找到要删除的气泡")
-                        # 找到了要删除的气泡，清理整个布局
-                        self._clear_layout_recursive(item.layout())
-                        self.user_layout.takeAt(i)
-                        if i < self.user_layout.count():
-                            self.user_layout.takeAt(i)  # 删除间距项
-                        deleted = True
-                        break
-                
-                if deleted:
-                    continue  # 继续检查下一项
-            
-            # 处理直接的小部件（可能是占位符或其他）
-            if item.widget():
-                # 检查是否是要删除的气泡
-                if item.widget() in bubbles:
-                    print(f"在用户列中直接找到要删除的气泡")
-                    item.widget().deleteLater()
-                    self.user_layout.takeAt(i)
-                    if i < self.user_layout.count():
-                        self.user_layout.takeAt(i)  # 删除间距项
-                    continue
-                    
-                # 检查是否是透明占位符（对应Agent气泡的占位符）
-                if isinstance(item.widget(), QLabel) and "background: transparent" in item.widget().styleSheet():
-                    # 这是占位符，检查左侧列是否有对应的要删除气泡
-                    for j in range(self.agent_layout.count()):
-                        agent_item = self.agent_layout.itemAt(j)
-                        if agent_item and agent_item.widget() in bubbles:
-                            print(f"删除用户列的占位符 (对应Agent气泡)")
-                            item.widget().deleteLater()
-                            self.user_layout.takeAt(i)
-                            if i < self.user_layout.count():
-                                self.user_layout.takeAt(i)
-                            deleted = True
-                            break
-                            
-                    if deleted:
-                        continue
-            
-            # 如果没有删除任何东西，移到下一项
             i += 1
         
         print(f"气泡删除完成")

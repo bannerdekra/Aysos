@@ -3,7 +3,7 @@ import os
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import QRunnable, QThreadPool, pyqtSignal, QObject, QTimer
 from chat_ui import ChatWindow
-from api_client import get_deepseek_reply, get_topic_from_reply
+from api_client import get_ai_reply, get_topic_from_reply
 from storage_config import StorageConfig
 from dialogs import ChatConfigDialog, DSNConfigDialog, show_connection_result
 
@@ -246,13 +246,34 @@ class ChatManager:
         self.storage.delete_conversation(conv_id)
         print(f"对话已从存储删除: {conv_id}")
         
-        # 重新加载对话列表
-        self.load_conversations()
-        
         # 处理当前对话的逻辑
         if conv_id == self.current_conversation_id:
-            # 如果删除的是当前对话，开始新对话
-            self.start_new_conversation()
+            # 清空聊天区域
+            self.chat_window.chat_area.clear_chat_history_display()
+            self.current_conversation_id = None
+            
+            # 获取删除后的对话列表
+            conversations_data = self.storage.get_all_conversations()
+            
+            if conversations_data:
+                # 如果还有其他对话，切换到第一个
+                first_conv = conversations_data[0]
+                if isinstance(first_conv, tuple):
+                    first_conv_id = first_conv[0]
+                else:
+                    first_conv_id = first_conv['id']
+                
+                print(f"切换到第一个对话: {first_conv_id}")
+                self.load_conversation_messages(first_conv_id)
+            else:
+                # 如果没有其他对话，保持空白状态
+                print("没有其他对话，保持空白状态")
+                self.current_conversation_id = None
+                self.is_first_message = True
+                self.first_user_message = None
+        
+        # 重新加载对话列表（确保UI同步）
+        self.load_conversations()
 
     def rename_conversation(self, conv_id, new_title):
         """重命名对话"""
@@ -305,7 +326,7 @@ class ChatManager:
         messages = self.storage.get_history(self.current_conversation_id)
         
         # 创建工作线程来获取回复
-        worker = Worker(get_deepseek_reply, messages)
+        worker = Worker(get_ai_reply, messages)
         worker.signals.result.connect(
             lambda result: self.handle_api_response(result, thinking_bubble)
         )

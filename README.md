@@ -1,6 +1,6 @@
 # Agent 项目
 
-这是一个包含开发工具的个人助手项目，使用Deepseek-V3模型，后续会接入更多其他模型
+这是一个包含开发工具的个人助手项目，支持 Deepseek、Gemini 等多模型，自动代理穿透防火墙，气泡布局自适应。
 
 # 开发准则（暂）
 
@@ -17,48 +17,47 @@ LOG 例子：
 5.无论是否完成开发工作每日必须存档提交，github库的存档是可以选择性删除的只是一个保存平台，方便取用最新的开发版本
 6.不允许同时编辑项目！！！需沟通协商各自的开发时间，确保每一时刻只有一个人在编辑该项目，每次编辑开始时都应该pull或者clone仓库再开始开发，确保项目进度统一
 
-## 项目结构
+## 项目结构（2025-09-30）
 
 - `SoftWare/Script/` - 所有脚本文件
-  - `dev_notebook.py` - 开发记事本工具
-  api_client
   - `main.py` - 主程序
-  - `chat_ui.py` - UI_聊天界面
-  -`api_client` -API调用
-  -`bubble_copy_handler` -对话气泡设置
-  -`chat_area` -UI_聊天区域
-  -`database_manager` -数据库_配置DSN管理
-  -`dialogs` -UI_软件弹窗类
-  -`file_manager` -数据库_不配置DSN时本地对话管理
-  -`input_bar` -UI_输入栏
-  -`sidebar` -UI_对话任务管理栏
-  -`storage_config` -数据库_使用/不使用DSN 逻辑切换
+  - `api_client.py` - AI API调用（支持 Gemini/DeepSeek，官方SDK集成）
+  - `api_config.py` - API配置与自动代理设置
+  - `chat_area.py` - 聊天区域，气泡布局优化
+  - `bubble_copy_handler.py` - 对话气泡复制功能
+  - `chat_ui.py` - 聊天界面UI
+  - `database_manager.py` - 数据库/DSN管理
+  - `dialogs.py` - 软件弹窗类
+  - `file_manager.py` - 本地对话管理
+  - `input_bar.py` - 输入栏
+  - `sidebar.py` - 任务管理栏
+  - `storage_config.py` - DSN逻辑切换
+- `SoftWare/Image/` - 软件资源
+  - `Backgroud/` - UI背景图片
+  - `loading/` - Agent回答加载中GIF
+- `SoftWare/Icon/` - 软件封装图标
+- `TOOL/` - 开发工具与辅助脚本
+  - `dev_notebook.py` - 开发记事本工具
+  - `sentence/summary.md` - 更新内容摘要
+- `UPDATE_2025-09-30.md` - 今日更新日志
+- `IMPROVEMENTS_SUMMARY.md` - 技术改进说明
+- `test_improvements.py` - 自动化测试脚本
 
-- `SoftWare/Image` - 所有软件内所需资源
- - `Backgroud` - UI背景图片
- - `loading` - Agent回答加载中GIF文件
+## 功能特性（2025-09-30）
 
-- `SoftWare/Icon` - 软件封装图标
-
-## 使用方法
-
-1. 安装依赖：`pip install -r requirements.txt`
-2. 运行main.py：`python SoftWare/Script/main.py`
-3. 运行Agent开发指令模板：`python SoftWare/Script/dev_notebook`
-
-## 功能特性
-
-- 联网即可使用个人助手问答 
+- 支持多AI模型（Gemini/DeepSeek），可随时切换
+- Gemini集成官方SDK，自动密钥管理，支持最新模型（gemini-2.5-flash）
+- 聊天气泡自适应布局，内容包裹优先，最大宽度限制，换行撑满
+- 自动代理配置，支持本地代理穿透防火墙
+- 完善的配置诊断与修复脚本
+- 详细的技术文档与更新日志
+- 联网即可使用个人助手问答
 - 本地保存对话记录不泄密
 - 预设提示词提高问答效率
 - 任务管理栏滚动播放任务名称
 - UI界面可缩放至任意大小
 
-## 相较前版本改动：
-
-- 更正且丰富Readme文件描述
-
 ## 未来开发计划：
-- 
-- 
-- 
+- 自由选择模型调用
+- 气泡自适应
+- 头像框绘制

@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLineEdit, QPushButton, QMenu
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 from PyQt6.QtGui import QAction
 from dialogs import CustomPromptDialog
+from api_config import get_available_providers, get_current_provider_name, switch_provider
 
 class InputBar(QWidget):
     """输入栏组件 - 支持主题感知"""
@@ -9,6 +10,7 @@ class InputBar(QWidget):
     prompt_signal = pyqtSignal(str)
     clear_history_signal = pyqtSignal()
     cancel_request_signal = pyqtSignal()  # 新增：取消请求信号
+    model_changed_signal = pyqtSignal(str)  # 新增：模型切换信号
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -48,6 +50,13 @@ class InputBar(QWidget):
         """)
         self.features_btn.clicked.connect(self.show_features_menu)
         
+        # 模型选择按钮
+        self.model_btn = QPushButton('模型')
+        self.model_btn.setFixedSize(70, 50)
+        self.update_model_button_text()  # 设置初始显示的模型名称
+        self.update_model_button_style()  # 应用主题样式
+        self.model_btn.clicked.connect(self.show_model_menu)
+        
         # 输入框
         self.input_line = QLineEdit()
         self.input_line.setFixedHeight(50)
@@ -74,6 +83,7 @@ class InputBar(QWidget):
         self.send_btn.clicked.connect(self.on_send_clicked)
         
         layout.addWidget(self.features_btn)
+        layout.addWidget(self.model_btn)
         layout.addWidget(self.input_line, 1)
         layout.addWidget(self.send_btn)
     
@@ -100,11 +110,7 @@ class InputBar(QWidget):
                 padding: 8px 12px;
             """)
     
-    def set_dark_mode(self, enabled):
-        """设置深色模式"""
-        self.is_dark_mode = enabled
-        self.update_input_style()
-        print(f"🎨 输入栏主题更新: {'深色模式' if enabled else '浅色模式'}")
+
         
     def on_send_clicked(self):
         """发送按钮点击事件 - 增加状态处理"""
@@ -248,3 +254,151 @@ class InputBar(QWidget):
             main_window = self.window()
             dialog = SettingsDialog(main_window)
         dialog.exec()
+
+    def update_model_button_text(self):
+        """更新模型按钮显示的文本"""
+        try:
+            current_provider = get_current_provider_name()
+            providers = get_available_providers()
+            
+            if current_provider in providers:
+                display_name = providers[current_provider].get('display_name', current_provider)
+                # 简化显示名称以适应按钮宽度
+                if len(display_name) > 6:
+                    display_name = display_name[:6]
+                self.model_btn.setText(display_name)
+            else:
+                self.model_btn.setText('模型')
+        except Exception as e:
+            print(f"更新模型按钮文本失败: {e}")
+            self.model_btn.setText('模型')
+
+    def update_model_button_style(self):
+        """根据主题更新模型按钮样式"""
+        if self.is_dark_mode:
+            # 深色模式
+            style = """
+                QPushButton { 
+                    background: rgba(255, 165, 0, 0.8); 
+                    color: white; 
+                    font-size: 13px; 
+                    font-weight: bold;
+                    border-radius: 10px; 
+                    border: none;
+                }
+                QPushButton:pressed { 
+                    background: rgba(255, 140, 0, 0.9); 
+                }
+            """
+        else:
+            # 浅色模式
+            style = """
+                QPushButton { 
+                    background: rgba(255, 165, 0, 0.8); 
+                    color: white; 
+                    font-size: 13px; 
+                    font-weight: bold;
+                    border-radius: 10px; 
+                    border: none;
+                }
+                QPushButton:pressed { 
+                    background: rgba(255, 140, 0, 0.9); 
+                }
+            """
+        self.model_btn.setStyleSheet(style)
+
+    def show_model_menu(self):
+        """显示模型选择菜单"""
+        try:
+            current_provider = get_current_provider_name()
+            providers = get_available_providers()
+            
+            menu = QMenu(self)
+            
+            # 应用深色模式样式
+            if self.is_dark_mode:
+                menu.setStyleSheet("""
+                    QMenu {
+                        background-color: rgba(40, 40, 40, 0.95);
+                        color: white;
+                        border: 1px solid rgba(255, 255, 255, 0.3);
+                        border-radius: 8px;
+                        padding: 4px;
+                    }
+                    QMenu::item {
+                        background-color: transparent;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                    }
+                    QMenu::item:selected {
+                        background-color: rgba(100, 149, 237, 0.8);
+                    }
+                    QMenu::item:checked {
+                        background-color: rgba(34, 139, 34, 0.8);
+                        color: white;
+                    }
+                """)
+            else:
+                menu.setStyleSheet("""
+                    QMenu {
+                        background-color: rgba(255, 255, 255, 0.95);
+                        color: black;
+                        border: 1px solid rgba(0, 0, 0, 0.2);
+                        border-radius: 8px;
+                        padding: 4px;
+                    }
+                    QMenu::item {
+                        background-color: transparent;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                    }
+                    QMenu::item:selected {
+                        background-color: rgba(100, 149, 237, 0.8);
+                        color: white;
+                    }
+                    QMenu::item:checked {
+                        background-color: rgba(34, 139, 34, 0.8);
+                        color: white;
+                    }
+                """)
+            
+            # 为每个可用的提供商创建菜单项
+            for provider_id, provider_info in providers.items():
+                if provider_id != current_provider:  # 不显示当前正在使用的模型
+                    display_name = provider_info.get('display_name', provider_id)
+                    action = QAction(display_name, self)
+                    action.setCheckable(False)
+                    action.triggered.connect(lambda checked, pid=provider_id: self.switch_to_model(pid))
+                    menu.addAction(action)
+            
+            if menu.actions():  # 只有当有其他模型可选时才显示菜单
+                # 计算菜单显示位置（按钮上方）
+                button_pos = self.model_btn.mapToGlobal(self.model_btn.rect().topLeft())
+                menu_x = button_pos.x()
+                menu_y = button_pos.y() - menu.sizeHint().height() - 5
+                
+                menu.exec(QPoint(menu_x, menu_y))
+            else:
+                print("没有其他可用的模型")
+                
+        except Exception as e:
+            print(f"显示模型菜单失败: {e}")
+
+    def switch_to_model(self, provider_id):
+        """切换到指定的模型"""
+        try:
+            if switch_provider(provider_id):
+                self.update_model_button_text()
+                self.model_changed_signal.emit(provider_id)
+                print(f"已切换到模型: {provider_id}")
+            else:
+                print(f"切换到模型失败: {provider_id}")
+        except Exception as e:
+            print(f"切换模型时发生错误: {e}")
+
+    def set_dark_mode(self, enabled):
+        """设置深色模式 - 更新所有按钮样式"""
+        self.is_dark_mode = enabled
+        self.update_input_style()
+        self.update_model_button_style()
+        print(f"🎨 输入栏主题更新: {'深色模式' if enabled else '浅色模式'}")

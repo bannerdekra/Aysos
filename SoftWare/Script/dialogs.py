@@ -6,6 +6,15 @@ from PyQt6.QtGui import QPixmap, QPainter, QColor
 import os
 import datetime
 
+from api_config import (
+    load_api_config, 
+    update_api_config, 
+    mask_sensitive_value, 
+    get_current_provider_name,
+    get_current_provider_config,
+    set_gemini_api_key
+)
+
 # 可选导入PIL
 try:
     from PIL import Image
@@ -438,9 +447,12 @@ class SettingsDialog(QDialog):
         self.dark_mode_switch = None
         self.auto_mode_switch = None
 
-        # 初始化设置状态
-        self.api_key = ""
-        self.api_url = ""
+        # API 配置状态
+        self.api_key_value = ""
+        self.api_url_value = ""
+        self.api_model_value = ""
+        self._suppress_api_events = False
+        self._load_api_config()
 
         # UI 组件引用
         self.left_widget = None
@@ -448,6 +460,28 @@ class SettingsDialog(QDialog):
 
         self.init_ui()
         self.apply_base_theme_styles()
+
+    def _load_api_config(self):
+        config = load_api_config()
+        self.api_key_value = config.get('api_key', '') or ""
+        self.api_url_value = config.get('api_url', '') or ""
+        self.api_model_value = config.get('model', '') or ""
+
+    def _refresh_api_inputs(self):
+        masked_key = mask_sensitive_value(self.api_key_value)
+        masked_url = mask_sensitive_value(self.api_url_value)
+
+        if hasattr(self, 'api_key_input') and self.api_key_input:
+            self._suppress_api_events = True
+            self.api_key_input.setText(masked_key)
+            self.api_key_input.setCursorPosition(len(masked_key))
+            self._suppress_api_events = False
+
+        if hasattr(self, 'api_url_input') and self.api_url_input:
+            self._suppress_api_events = True
+            self.api_url_input.setText(masked_url)
+            self.api_url_input.setCursorPosition(len(masked_url))
+            self._suppress_api_events = False
 
     def is_dark_mode_enabled(self):
         if self.theme_manager:
@@ -1058,12 +1092,46 @@ class SettingsDialog(QDialog):
         )
         self.right_layout.addWidget(title_label)
         
-        # API Key设置
-        api_key_label = QLabel("设置您的API_Key（回车确认）：")
+        # 当前提供商信息
+        try:
+            current_provider = get_current_provider_name()
+            provider_config = get_current_provider_config()
+            provider_display_name = provider_config.get('display_name', current_provider)
+            
+            provider_info_label = QLabel(f"当前API提供商: {provider_display_name}")
+            provider_info_label.setStyleSheet(
+                f"font-size: 14px; color: {palette['text_secondary']}; margin-bottom: 10px; "
+                f"background: {palette['card_bg']}; padding: 8px; border-radius: 4px;"
+            )
+            self.right_layout.addWidget(provider_info_label)
+        except Exception as e:
+            print(f"获取提供商信息失败: {e}")
+        
+        # API Key设置（根据提供商显示不同信息）
+        try:
+            current_provider = get_current_provider_name()
+            if current_provider == 'gemini':
+                api_key_label = QLabel("设置 Gemini API Key（回车确认）：")
+                hint_text = "Gemini API Key 将自动设置为环境变量 GEMINI_API_KEY"
+            else:
+                api_key_label = QLabel("设置您的API_Key（回车确认）：")
+                hint_text = "请输入您的API密钥"
+        except:
+            api_key_label = QLabel("设置您的API_Key（回车确认）：")
+            hint_text = "请输入您的API密钥"
+            
         api_key_label.setStyleSheet(
             f"font-size: 13px; color: {palette['text_primary']}; margin-bottom: 5px;"
         )
         self.right_layout.addWidget(api_key_label)
+        
+        # 添加提示信息
+        if 'hint_text' in locals():
+            hint_label = QLabel(hint_text)
+            hint_label.setStyleSheet(
+                f"font-size: 11px; color: {palette['text_muted']}; margin-bottom: 5px;"
+            )
+            self.right_layout.addWidget(hint_label)
         
         self.api_key_input = QLineEdit()
         self.api_key_input.setPlaceholderText("请输入API Key...")
@@ -1082,7 +1150,9 @@ class SettingsDialog(QDialog):
             }}
         """
         )
+        self.api_key_input.setClearButtonEnabled(True)
         self.api_key_input.returnPressed.connect(self.save_api_key)
+        self.api_key_input.editingFinished.connect(self.save_api_key)
         self.right_layout.addWidget(self.api_key_input)
         
         # 间距
@@ -1113,8 +1183,20 @@ class SettingsDialog(QDialog):
             }}
         """
         )
+        self.api_url_input.setClearButtonEnabled(True)
         self.api_url_input.returnPressed.connect(self.save_api_url)
+        self.api_url_input.editingFinished.connect(self.save_api_url)
         self.right_layout.addWidget(self.api_url_input)
+
+        # 安全提示
+        mask_hint = QLabel("提示：为了安全，仅显示前4位和末尾2位，其余部分会使用 * 掩码。")
+        mask_hint.setWordWrap(True)
+        mask_hint.setStyleSheet(
+            f"font-size: 11px; color: {palette['text_muted']}; margin-top: 6px;"
+        )
+        self.right_layout.addWidget(mask_hint)
+
+        self._refresh_api_inputs()
         
         # 添加弹性空间
         self.right_layout.addStretch()
@@ -1249,15 +1331,30 @@ class SettingsDialog(QDialog):
             return False
     
     def save_api_key(self):
-        """保存API Key"""
-        self.api_key = self.api_key_input.text().strip()
-        if self.api_key:
-            print(f"API Key已保存: {self.api_key}")
-        # TODO: 实际保存到配置文件
+        """保存API Key并持久化到配置文件"""
+        raw_key = self.api_key_input.text().strip()
+        if raw_key:
+            try:
+                current_provider = get_current_provider_name()
+                if current_provider == 'gemini':
+                    # 对于 Gemini，使用专门的设置函数
+                    if set_gemini_api_key(raw_key):
+                        print(f"Gemini API Key已保存并设置为环境变量: {raw_key[:10]}...")
+                    else:
+                        print("保存 Gemini API Key 失败")
+                else:
+                    # 对于其他提供商，使用标准方法
+                    update_api_config(api_key=raw_key)
+                    print(f"API Key已保存: {raw_key}")
+                
+                self._refresh_api_inputs()
+            except Exception as e:
+                print(f"保存API Key失败: {e}")
         
     def save_api_url(self):
-        """保存API URL"""
-        self.api_url = self.api_url_input.text().strip()
-        if self.api_url:
-            print(f"API URL已保存: {self.api_url}")
-        # TODO: 实际保存到配置文件
+        """保存API URL并持久化到配置文件"""
+        raw_url = self.api_url_input.text().strip()
+        if raw_url:
+            update_api_config(api_url=raw_url)
+            print(f"API URL已保存: {raw_url}")
+            self._refresh_api_inputs()
