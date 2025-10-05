@@ -1358,3 +1358,242 @@ class SettingsDialog(QDialog):
             update_api_config(api_url=raw_url)
             print(f"API URL已保存: {raw_url}")
             self._refresh_api_inputs()
+
+
+class SearchDialog(QDialog):
+    """搜索对话框 - 用于在聊天记录中查找文本"""
+    search_in_current_signal = pyqtSignal(str)  # 在当前对话中搜索
+    search_globally_signal = pyqtSignal(str)    # 全局搜索
+    navigate_signal = pyqtSignal(int)  # 导航到第N个结果 (index)
+    
+    def __init__(self, parent=None, has_bubbles=False, has_conversations=False):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle('搜索文本')
+        self.setFixedSize(500, 200)
+        
+        self.has_bubbles = has_bubbles
+        self.has_conversations = has_conversations
+        self.result_label = None
+        self.matches = []  # 存储搜索结果
+        self.current_index = 0  # 当前显示的结果索引
+        
+        self.init_ui()
+        self.apply_theme()
+    
+    def apply_theme(self):
+        """应用主题"""
+        is_dark = False
+        parent = self.parent()
+        if parent and hasattr(parent, 'theme_manager'):
+            is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+        
+        bg_color = "#2b2b2b" if is_dark else "white"
+        text_color = "white" if is_dark else "black"
+        gray_text = "#999999" if is_dark else "#666666"
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+            }}
+            QLabel {{
+                color: {text_color};
+                font-size: 14px;
+            }}
+            QLabel#resultLabel {{
+                color: {gray_text};
+                font-size: 12px;
+            }}
+            QLineEdit {{
+                background-color: {'#3b3b3b' if is_dark else '#f0f0f0'};
+                color: {text_color};
+                border: 1px solid {'#555' if is_dark else '#ccc'};
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 14px;
+            }}
+            QPushButton {{
+                background-color: {'#0078d4' if not is_dark else '#0d6efd'};
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {'#106ebe' if not is_dark else '#0b5ed7'};
+            }}
+            QPushButton:disabled {{
+                background-color: {'#cccccc' if not is_dark else '#555555'};
+                color: {'#666666' if not is_dark else '#999999'};
+            }}
+        """)
+    
+    def init_ui(self):
+        """初始化UI"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 标题
+        title_label = QLabel("输入要搜索的文本：")
+        layout.addWidget(title_label)
+        
+        # 搜索输入框
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("请输入搜索内容...")
+        self.search_input.returnPressed.connect(self.on_search_current)
+        layout.addWidget(self.search_input)
+        
+        # 结果提示和导航按钮的水平布局
+        result_nav_layout = QHBoxLayout()
+        result_nav_layout.setSpacing(10)
+        
+        # 结果提示标签
+        self.result_label = QLabel("")
+        self.result_label.setObjectName("resultLabel")
+        self.result_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        result_nav_layout.addWidget(self.result_label, 1)  # 占据剩余空间
+        
+        # 导航按钮容器
+        nav_widget = QWidget()
+        nav_layout = QHBoxLayout(nav_widget)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(5)
+        
+        # 上一处按钮
+        self.prev_btn = QPushButton("◀ 上一处")
+        self.prev_btn.clicked.connect(self.on_previous)
+        self.prev_btn.setVisible(False)
+        self.prev_btn.setFixedWidth(100)
+        nav_layout.addWidget(self.prev_btn)
+        
+        # 下一处按钮
+        self.next_btn = QPushButton("下一处 ▶")
+        self.next_btn.clicked.connect(self.on_next)
+        self.next_btn.setVisible(False)
+        self.next_btn.setFixedWidth(100)
+        nav_layout.addWidget(self.next_btn)
+        
+        result_nav_layout.addWidget(nav_widget)
+        layout.addLayout(result_nav_layout)
+        
+        # 搜索按钮布局
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
+        
+        # 查找按钮（仅在有气泡时可见）
+        self.search_btn = QPushButton("查找")
+        self.search_btn.clicked.connect(self.on_search_current)
+        self.search_btn.setVisible(self.has_bubbles)
+        self.search_btn.setEnabled(self.has_bubbles)
+        button_layout.addWidget(self.search_btn)
+        
+        # 全局查找按钮（仅在有对话时可见）
+        self.global_search_btn = QPushButton("全局查找")
+        self.global_search_btn.clicked.connect(self.on_search_globally)
+        self.global_search_btn.setVisible(self.has_conversations)
+        self.global_search_btn.setEnabled(self.has_conversations)
+        button_layout.addWidget(self.global_search_btn)
+        
+        # 取消按钮
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # 添加弹性空间
+        layout.addStretch()
+    
+    def on_search_current(self):
+        """在当前对话中搜索"""
+        search_text = self.search_input.text().strip()
+        if not search_text:
+            self.show_result("请输入搜索内容", is_error=True)
+            return
+        
+        if not self.has_bubbles:
+            self.show_result("当前对话中没有消息", is_error=True)
+            return
+        
+        self.search_in_current_signal.emit(search_text)
+    
+    def on_search_globally(self):
+        """全局搜索"""
+        search_text = self.search_input.text().strip()
+        if not search_text:
+            self.show_result("请输入搜索内容", is_error=True)
+            return
+        
+        if not self.has_conversations:
+            self.show_result("没有可搜索的对话", is_error=True)
+            return
+        
+        self.search_globally_signal.emit(search_text)
+    
+    def on_previous(self):
+        """跳转到上一处匹配"""
+        if self.matches and self.current_index > 0:
+            self.current_index -= 1
+            self.navigate_signal.emit(self.current_index)
+            self.update_result_display()
+    
+    def on_next(self):
+        """跳转到下一处匹配"""
+        if self.matches and self.current_index < len(self.matches) - 1:
+            self.current_index += 1
+            self.navigate_signal.emit(self.current_index)
+            self.update_result_display()
+    
+    def set_search_results(self, matches, current_index=0):
+        """设置搜索结果"""
+        self.matches = matches
+        self.current_index = current_index
+        self.update_result_display()
+        
+        # 显示/隐藏导航按钮
+        show_nav = len(matches) >= 2
+        self.prev_btn.setVisible(show_nav)
+        self.next_btn.setVisible(show_nav)
+    
+    def update_result_display(self):
+        """更新结果显示"""
+        if not self.matches:
+            self.show_result("没有找到匹配内容", is_error=True)
+            self.prev_btn.setVisible(False)
+            self.next_btn.setVisible(False)
+            return
+        
+        total = len(self.matches)
+        current = self.current_index + 1
+        self.show_result(f"已查找到 {total} 处内容，现在显示的是 {current}/{total} 处", is_error=False)
+        
+        # 更新按钮状态
+        self.prev_btn.setEnabled(self.current_index > 0)
+        self.next_btn.setEnabled(self.current_index < total - 1)
+    
+    def show_result(self, message, is_error=False):
+        """显示搜索结果消息"""
+        if self.result_label:
+            if is_error:
+                self.result_label.setStyleSheet("color: red; font-size: 12px;")
+            else:
+                # 使用灰色字体
+                parent = self.parent()
+                is_dark = False
+                if parent and hasattr(parent, 'theme_manager'):
+                    is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+                gray_color = "#999999" if is_dark else "#666666"
+                self.result_label.setStyleSheet(f"color: {gray_color}; font-size: 12px;")
+            
+            self.result_label.setText(message)
+    
+    def clear_result(self):
+        """清除结果消息"""
+        if self.result_label:
+            self.result_label.setText("")
+        self.matches = []
+        self.current_index = 0
+        self.prev_btn.setVisible(False)
+        self.next_btn.setVisible(False)
+

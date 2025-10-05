@@ -218,6 +218,45 @@ class ChatManager:
                 message['content']
             )
 
+    def search_text_globally(self, search_text):
+        """全局搜索所有对话中的文本"""
+        # 获取所有对话
+        conversations_data = self.storage.get_all_conversations()
+        
+        if not conversations_data:
+            return None  # 没有对话
+        
+        # 遍历所有对话
+        for conv_data in conversations_data:
+            # 获取对话ID
+            if isinstance(conv_data, tuple):
+                conv_id = conv_data[0]
+            else:
+                conv_id = conv_data['id']
+            
+            # 获取该对话的所有消息
+            messages = self.storage.get_history(conv_id)
+            
+            # 在消息中查找匹配项
+            for message in messages:
+                if search_text.lower() in message['content'].lower():
+                    # 找到匹配项，切换到该对话
+                    self.load_conversation_messages(conv_id)
+                    
+                    # 使用 QTimer 延迟执行搜索，确保UI已经加载完成
+                    # 传递 search_text 参数用于文本高亮
+                    QTimer.singleShot(100, lambda st=search_text: self._perform_search_after_load(st))
+                    
+                    return True  # 找到匹配项
+        
+        return False  # 没有找到匹配项
+    
+    def _perform_search_after_load(self, search_text):
+        """在加载对话后执行搜索"""
+        matches = self.chat_window.chat_area.search_text_in_current(search_text)
+        if matches:
+            self.chat_window.chat_area.scroll_to_bubble(matches[0], search_text)
+
     def start_new_conversation(self):
         """开始新对话"""
         self.current_conversation_id = self.storage.create_new_conversation()
@@ -449,6 +488,9 @@ if __name__ == '__main__':
     
     # 创建聊天管理器
     chat_manager = ChatManager(chat_window)
+    
+    # 设置聊天管理器引用到窗口
+    chat_window.set_chat_manager(chat_manager)
     
     print("🎯 Agent Chat 启动完成")
     print("✅ 已集成增强主题管理器和响应式UI组件")

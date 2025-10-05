@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QDialog
-from PyQt6.QtGui import QPixmap, QPainter, QColor
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QKeySequence
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from sidebar import Sidebar
 from input_bar import InputBar
@@ -58,6 +58,9 @@ class ChatWindow(QWidget):
         # 使用QTimer延迟最大化，确保窗口完全初始化后再最大化
         QTimer.singleShot(100, self.showMaximized)
         
+        # 聊天管理器引用（稍后设置）
+        self.chat_manager = None
+        
         # 初始化增强的主题管理器
         try:
             from enhanced_theme_manager import EnhancedThemeManager
@@ -99,6 +102,10 @@ class ChatWindow(QWidget):
         except Exception as e:
             self.bg_pixmap = QPixmap(1920, 1080)
             self.bg_pixmap.fill(Qt.GlobalColor.white)
+
+    def set_chat_manager(self, chat_manager):
+        """设置聊天管理器引用"""
+        self.chat_manager = chat_manager
 
     def init_ui(self):
         """初始化UI"""
@@ -143,6 +150,7 @@ class ChatWindow(QWidget):
         self.input_bar.prompt_signal.connect(self.prompt_signal.emit)
         self.input_bar.clear_history_signal.connect(self.clear_history_signal.emit)
         self.input_bar.cancel_request_signal.connect(self.cancel_request_signal.emit)  # 新增
+        self.input_bar.search_text_signal.connect(self.show_search_dialog)  # 新增：搜索文本信号
         
         # 聊天区域信号
         self.chat_area.edit_message_signal.connect(self.edit_message_signal.emit)
@@ -163,6 +171,80 @@ class ChatWindow(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.new_title:
             if dialog.new_title != current_title:
                 self.rename_conversation_signal.emit(conv_id, dialog.new_title)
+    
+    def show_search_dialog(self):
+        """显示搜索对话框"""
+        from dialogs import SearchDialog
+        
+        # 检查是否有气泡和对话
+        has_bubbles = len(self.chat_area.message_bubbles) > 0
+        has_conversations = len(self.sidebar.current_conversation_items) > 0
+        
+        # 创建搜索对话框
+        self.search_dialog = SearchDialog(self, has_bubbles, has_conversations)
+        
+        # 保存搜索相关状态
+        self.search_matches = []
+        self.search_text = ""
+        
+        # 连接搜索信号
+        self.search_dialog.search_in_current_signal.connect(self.on_search_in_current)
+        self.search_dialog.search_globally_signal.connect(self.on_search_globally)
+        self.search_dialog.navigate_signal.connect(self.on_navigate_to_match)
+        
+        self.search_dialog.exec()
+    
+    def on_search_in_current(self, search_text):
+        """在当前对话中搜索"""
+        self.search_text = search_text
+        self.search_matches = self.chat_area.search_text_in_current(search_text)
+        
+        if self.search_matches:
+            # 找到匹配，更新对话框显示
+            self.search_dialog.set_search_results(self.search_matches, 0)
+            # 滚动到第一个匹配
+            self.chat_area.scroll_to_bubble(self.search_matches[0], search_text)
+        else:
+            # 没有找到匹配
+            self.search_dialog.set_search_results([], 0)
+    
+    def on_search_globally(self, search_text):
+        """全局搜索（在所有对话中搜索）"""
+        from PyQt6.QtWidgets import QMessageBox
+        
+        print(f"全局搜索: {search_text}")
+        self.search_text = search_text
+        
+        # 检查是否有聊天管理器引用
+        if not self.chat_manager:
+            QMessageBox.warning(self, "错误", "无法访问聊天管理器")
+            return
+        
+        # 调用聊天管理器的全局搜索方法
+        found = self.chat_manager.search_text_globally(search_text)
+        
+        if found:
+            # 找到匹配，获取当前对话的所有匹配结果
+            self.search_matches = self.chat_area.search_text_in_current(search_text)
+            if self.search_matches:
+                self.search_dialog.set_search_results(self.search_matches, 0)
+        else:
+            # 没有找到匹配
+            self.search_dialog.set_search_results([], 0)
+    
+    def on_navigate_to_match(self, index):
+        """导航到指定索引的匹配结果"""
+        if 0 <= index < len(self.search_matches):
+            self.chat_area.scroll_to_bubble(self.search_matches[index], self.search_text)
+
+    def keyPressEvent(self, event):
+        """处理键盘事件"""
+        # 检查是否按下了 Ctrl+F
+        if event.key() == Qt.Key.Key_F and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            self.show_search_dialog()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
     def paintEvent(self, event):
         """绘制背景"""

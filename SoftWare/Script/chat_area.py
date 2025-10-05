@@ -2,7 +2,7 @@ import os
 import sys
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QApplication, QSpacerItem
 from PyQt6.QtGui import QMovie, QFont, QFontMetrics, QTextDocument
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QTimer
 from bubble_copy_handler import create_copyable_bubble_class, CopyButtonManager
 from api_client import SPINNER_GIF_URL
 
@@ -41,6 +41,11 @@ class ChatArea(QWidget):
         self.standard_font = QFont("Arial", 18)
         self.font_metrics = QFontMetrics(self.standard_font)
         self.char_width = self.font_metrics.averageCharWidth()
+        
+        # 高亮相关状态
+        self.current_highlighted_bubble = None
+        self.highlight_timer = None
+        
         self.init_ui()
         # 绑定删除信号，确保一轮对话（用户+Agent）会一起删除
         self.delete_message_signal.connect(self.delete_dialog_by_index)
@@ -744,3 +749,151 @@ class ChatArea(QWidget):
                     bubble.set_bubble_index(i)
                 except Exception:
                     pass
+    
+    def search_text_in_current(self, search_text):
+        """在当前对话中搜索文本，返回所有匹配的气泡信息列表"""
+        if not search_text or not self.message_bubbles:
+            return []
+        
+        search_text_lower = search_text.lower()
+        matches = []
+        
+        # 遍历所有气泡查找匹配的文本
+        for bubble_info in self.message_bubbles:
+            content = bubble_info.get('content', '')
+            if search_text_lower in content.lower():
+                # 找到匹配，添加到结果列表
+                matches.append(bubble_info)
+        
+        return matches
+    
+    def scroll_to_bubble(self, bubble_info, search_text=None):
+        """滚动到指定气泡并居中显示"""
+        if not bubble_info or 'container' not in bubble_info:
+            return False
+        
+        container = bubble_info['container']
+        bubble = bubble_info['bubble']
+        
+        try:
+            # 获取容器在聊天内容中的位置
+            container_pos = container.pos()
+            container_height = container.height()
+            
+            # 获取滚动区域的可见高度
+            viewport_height = self.scroll.viewport().height()
+            
+            # 计算目标滚动位置（让气泡居中）
+            target_scroll = container_pos.y() - (viewport_height - container_height) // 2
+            
+            # 确保滚动位置在有效范围内
+            max_scroll = self.scroll.verticalScrollBar().maximum()
+            target_scroll = max(0, min(target_scroll, max_scroll))
+            
+            # 平滑滚动到目标位置
+            self.scroll.verticalScrollBar().setValue(target_scroll)
+            
+            # 高亮显示找到的气泡（临时改变背景色和文本高亮）
+            self.highlight_bubble(bubble, search_text)
+            
+            return True
+            
+        except Exception as e:
+            print(f"滚动到气泡失败: {e}")
+            return False
+    
+    def highlight_bubble(self, bubble, search_text=None):
+        """高亮显示气泡（临时改变背景色），并可选高亮匹配的文本"""
+        try:
+            # 如果有之前的高亮，立即清除
+            if self.current_highlighted_bubble is not None:
+                self.clear_current_highlight()
+            
+            # 如果有未完成的定时器，取消它
+            if self.highlight_timer is not None:
+                self.highlight_timer.stop()
+                self.highlight_timer = None
+            
+            # 保存原始样式和文本
+            original_style = bubble.styleSheet()
+            original_text = bubble.text()
+            
+            # 保存当前高亮信息
+            self.current_highlighted_bubble = {
+                'bubble': bubble,
+                'original_style': original_style,
+                'original_text': original_text
+            }
+            
+            # 如果提供了搜索文本，高亮显示匹配的文本
+            if search_text:
+                # 使用HTML高亮匹配的文本
+                highlighted_text = self._highlight_text_in_html(original_text, search_text)
+                bubble.setText(highlighted_text)
+            
+            # 应用高亮样式
+            role = getattr(bubble, 'side', 'left')
+            if role == 'right':  # 用户消息
+                highlight_style = """
+                    QLabel {
+                        background: rgb(100, 255, 100); 
+                        border-radius: 20px; 
+                        color: #222; 
+                        font-size: 18px; 
+                        padding: 12px 16px;
+                        margin: 4px;
+                        border: 3px solid #FFA500;
+                    }
+                """
+            else:  # Agent消息
+                highlight_style = """
+                    QLabel {
+                        background: rgb(100, 200, 255); 
+                        border-radius: 20px; 
+                        color: #222; 
+                        font-size: 18px; 
+                        padding: 12px 16px;
+                        margin: 4px;
+                        border: 3px solid #FFA500;
+                    }
+                """
+            
+            bubble.setStyleSheet(highlight_style)
+            
+            # 创建新的定时器，3秒后恢复原始样式和文本
+            self.highlight_timer = QTimer()
+            self.highlight_timer.setSingleShot(True)
+            self.highlight_timer.timeout.connect(self.clear_current_highlight)
+            self.highlight_timer.start(3000)
+            
+        except Exception as e:
+            print(f"高亮气泡失败: {e}")
+    
+    def clear_current_highlight(self):
+        """清除当前的高亮显示"""
+        if self.current_highlighted_bubble is not None:
+            try:
+                bubble = self.current_highlighted_bubble['bubble']
+                original_style = self.current_highlighted_bubble['original_style']
+                original_text = self.current_highlighted_bubble['original_text']
+                
+                bubble.setStyleSheet(original_style)
+                bubble.setText(original_text)
+            except Exception as e:
+                print(f"清除高亮失败: {e}")
+            finally:
+                self.current_highlighted_bubble = None
+    
+    def _highlight_text_in_html(self, text, search_text):
+        """在文本中高亮显示搜索关键词"""
+        if not search_text:
+            return text
+        
+        # 使用不区分大小写的替换
+        import re
+        pattern = re.compile(re.escape(search_text), re.IGNORECASE)
+        highlighted = pattern.sub(
+            lambda m: f'<span style="background-color: yellow; color: black; font-weight: bold;">{m.group(0)}</span>',
+            text
+        )
+        return highlighted

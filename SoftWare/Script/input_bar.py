@@ -11,6 +11,7 @@ class InputBar(QWidget):
     clear_history_signal = pyqtSignal()
     cancel_request_signal = pyqtSignal()  # 新增：取消请求信号
     model_changed_signal = pyqtSignal(str)  # 新增：模型切换信号
+    search_text_signal = pyqtSignal()  # 新增：搜索文本信号
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -179,6 +180,10 @@ class InputBar(QWidget):
         
         clear_history_action = QAction("清空聊天记录", self)
         clear_history_action.triggered.connect(self.clear_history_signal.emit)
+        
+        # 新增：搜索文本功能
+        search_text_action = QAction("搜索文本", self)
+        search_text_action.triggered.connect(self.show_search_dialog)
 
         clear_action = QAction("清除提示词", self)
         clear_action.triggered.connect(lambda: self.on_prompt_action_triggered(None, "", False))
@@ -205,6 +210,7 @@ class InputBar(QWidget):
         prompt_menu.addAction(clear_action)
         
         menu.addMenu(prompt_menu)
+        menu.addAction(search_text_action)  # 添加搜索文本菜单项
         menu.addAction(clear_history_action)
         
         
@@ -238,6 +244,10 @@ class InputBar(QWidget):
         dialog = CustomPromptDialog(self)
         if dialog.exec() == dialog.Accepted and dialog.prompt:
             self.prompt_signal.emit(f"({dialog.prompt})")
+    
+    def show_search_dialog(self):
+        """显示搜索对话框"""
+        self.search_text_signal.emit()
 
     def show_settings_dialog(self):
         """显示设置对话框"""
