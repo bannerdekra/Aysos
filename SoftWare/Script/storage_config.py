@@ -220,6 +220,8 @@ class StorageConfig:
             return self.db_manager.delete_messages_from_index(conv_id, start_index)
         else:
             # 文件管理器不支持此操作，需要重写整个文件
+            if hasattr(self.file_manager, "delete_messages_from_index"):
+                return self.file_manager.delete_messages_from_index(conv_id, start_index)
             print("文件存储暂不支持从指定索引删除消息")
     
     def delete_message_by_index(self, conv_id, message_index):
@@ -227,7 +229,8 @@ class StorageConfig:
         if self.config["storage_type"] == "dsn" and self.db_manager:
             return self.db_manager.delete_message_by_index(conv_id, message_index)
         else:
-            # 文件管理器不支持此操作，需要重写整个文件
+            if hasattr(self.file_manager, "delete_message_by_index"):
+                return self.file_manager.delete_message_by_index(conv_id, message_index)
             print("文件存储暂不支持删除指定索引的消息")
     
     def clear_conversation_history(self, conv_id):

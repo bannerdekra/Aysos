@@ -24,15 +24,20 @@ LOG 例子：
   - `main.py` - 主程序
   - `api_client.py` - AI API调用（支持 Gemini/DeepSeek，官方SDK集成）
   - `api_config.py` - API配置与自动代理设置
-  - `chat_area.py` - 聊天区域，气泡布局优化
-  - `bubble_copy_handler.py` - 对话气泡复制功能
+  - `chat_area.py` - 聊天区域，气泡布局优化，支持气泡删除
+  - `bubble_copy_handler.py` - 对话气泡复制与删除信号
   - `chat_ui.py` - 聊天界面UI
   - `database_manager.py` - 数据库/DSN管理
   - `dialogs.py` - 软件弹窗类
-  - `file_manager.py` - 本地对话管理
+  - `file_manager.py` - 本地对话管理，支持消息删除
+  - `gemini_context_manager.py` - Gemini上下文与文件上传管理，统一走 File API，限定 PDF/JPG/PNG
   - `input_bar.py` - 输入栏
+  - `responsive_switch.py` - 响应式切换
   - `sidebar.py` - 任务管理栏
-  - `storage_config.py` - DSN逻辑切换
+  - `storage_config.py` - DSN逻辑切换，支持文件存储删除
+  - `test_attachment_recognition.py` - 附件识别测试
+  - `theme_manager.py` - 主题管理
+  - `theme_settings.json` - 主题配置
 - `SoftWare/Image/` - 软件资源
   - `Backgroud/` - UI背景图片
   - `loading/` - Agent回答加载中GIF
@@ -40,9 +45,11 @@ LOG 例子：
 - `TOOL/` - 开发工具与辅助脚本
   - `dev_notebook.py` - 开发记事本工具
   - `sentence/summary.md` - 更新内容摘要
-- `UPDATE_2025-09-30.md` - 今日更新日志
-- `IMPROVEMENTS_SUMMARY.md` - 技术改进说明
-- `test_improvements.py` - 自动化测试脚本
+  - `test_fixes.py` - 自动化修复测试
+  - `test_file_upload.py` - 附件上传测试
+- `LOG/` - 日志与说明
+  - `UPDATE_2025-09-28.md`/`UPDATE_2025-09-30.md`/`UPDATE_2025-10-05.md`/`UPDATE_2025-10-08.md` - 每日更新日志
+  - `README.md` - 发布说明
 
 ## 功能特性（2025-10-05）
 
@@ -68,5 +75,4 @@ LOG 例子：
 
 ## 未来开发计划：
 - 加入其他模型，目前已接入Gemini和DeepSeek
-- 接入附件处理功能（涵盖常见格式附件，包括脚本）
-- 接入生图接口
+- 接入附件处理功能（现无法实现上传附件，仅在UI中增加上传按钮）

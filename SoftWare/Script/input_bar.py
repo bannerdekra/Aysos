@@ -1,35 +1,178 @@
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLineEdit, QPushButton, QMenu
+from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLineEdit, 
+                             QPushButton, QMenu, QFileDialog, QLabel, QFrame)
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 from PyQt6.QtGui import QAction
 from dialogs import CustomPromptDialog
 from api_config import get_available_providers, get_current_provider_name, switch_provider
+import os
+
+class FileChip(QWidget):
+    """文件标签组件 - 显示上传的文件"""
+    remove_clicked = pyqtSignal(str)  # 文件路径
+    
+    def __init__(self, file_path, display_name, parent=None):
+        super().__init__(parent)
+        self.file_path = file_path
+        self.display_name = display_name
+        self.is_dark_mode = False
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化文件标签UI"""
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(5)
+        
+        # 文件名标签
+        self.name_label = QLabel(self.display_name)
+        self.name_label.setStyleSheet("color: white; font-size: 12px;")
+        
+        # 删除按钮
+        self.remove_btn = QPushButton("×")
+        self.remove_btn.setFixedSize(16, 16)
+        self.remove_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+                border: none;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                color: #ff6666;
+            }
+        """)
+        self.remove_btn.clicked.connect(lambda: self.remove_clicked.emit(self.file_path))
+        
+        layout.addWidget(self.name_label)
+        layout.addWidget(self.remove_btn)
+        
+        self.update_style()
+    
+    def update_style(self):
+        """更新样式"""
+        self.setStyleSheet("""
+            QWidget {
+                background: rgba(100, 149, 237, 0.6);
+                border-radius: 10px;
+                padding: 2px;
+            }
+        """)
+    
+    def set_dark_mode(self, enabled):
+        """设置深色模式"""
+        self.is_dark_mode = enabled
+        if enabled:
+            self.setStyleSheet("""
+                QWidget {
+                    background: rgba(70, 100, 180, 0.7);
+                    border-radius: 10px;
+                    padding: 2px;
+                }
+            """)
+        else:
+            self.update_style()
+
+
+class FileContainer(QWidget):
+    """文件容器 - 存放上传的文件标签"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.file_chips = []  # 存储 FileChip 组件
+        self.is_dark_mode = False
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化文件容器UI"""
+        self.setFixedHeight(20)
+        self.setStyleSheet("background: transparent;")
+        
+        self.layout = QHBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(5)
+        self.layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+    
+    def add_file(self, file_path):
+        """添加文件"""
+        # 获取文件名（前10个字符）
+        file_name = os.path.basename(file_path)
+        if len(file_name) > 10:
+            display_name = file_name[:10] + "..."
+        else:
+            display_name = file_name
+        
+        # 创建文件标签
+        chip = FileChip(file_path, display_name)
+        chip.set_dark_mode(self.is_dark_mode)
+        chip.remove_clicked.connect(self.remove_file)
+        
+        self.file_chips.append(chip)
+        self.layout.addWidget(chip)
+    
+    def remove_file(self, file_path):
+        """移除文件"""
+        for chip in self.file_chips:
+            if chip.file_path == file_path:
+                self.file_chips.remove(chip)
+                chip.deleteLater()
+                break
+    
+    def get_files(self):
+        """获取所有文件路径"""
+        return [chip.file_path for chip in self.file_chips]
+    
+    def clear_files(self):
+        """清空所有文件"""
+        for chip in self.file_chips:
+            chip.deleteLater()
+        self.file_chips.clear()
+    
+    def set_dark_mode(self, enabled):
+        """设置深色模式"""
+        self.is_dark_mode = enabled
+        for chip in self.file_chips:
+            chip.set_dark_mode(enabled)
+
 
 class InputBar(QWidget):
-    """输入栏组件 - 支持主题感知"""
-    send_message_signal = pyqtSignal(str)
+    """输入栏组件 - 支持主题感知和文件上传"""
+    send_message_signal = pyqtSignal(str, list)  # 消息内容, 文件列表
     prompt_signal = pyqtSignal(str)
     clear_history_signal = pyqtSignal()
-    cancel_request_signal = pyqtSignal()  # 新增：取消请求信号
-    model_changed_signal = pyqtSignal(str)  # 新增：模型切换信号
-    search_text_signal = pyqtSignal()  # 新增：搜索文本信号
+    cancel_request_signal = pyqtSignal()
+    model_changed_signal = pyqtSignal(str)
+    search_text_signal = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_prompt_action = None
-        self.is_waiting_response = False  # 新增：是否在等待回复状态
-        self.is_dark_mode = False  # 新增：深色模式状态
+        self.is_waiting_response = False
+        self.is_dark_mode = False
         self.init_ui()
         
     def init_ui(self):
         """初始化输入栏UI"""
-        self.setFixedHeight(80)
-        self.setStyleSheet("""
+        # 主布局
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # 文件容器（20px高）
+        self.file_container = FileContainer()
+        main_layout.addWidget(self.file_container)
+        
+        # 输入栏容器
+        input_widget = QWidget()
+        input_widget.setFixedHeight(80)
+        input_widget.setStyleSheet("""
             background: rgba(255,255,255,0.25); 
             border-radius: 20px; 
             border: 2px solid rgba(255,255,255,0.3);
         """)
         
-        layout = QHBoxLayout(self)
+        layout = QHBoxLayout(input_widget)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(10)
         
@@ -54,16 +197,38 @@ class InputBar(QWidget):
         # 模型选择按钮
         self.model_btn = QPushButton('模型')
         self.model_btn.setFixedSize(70, 50)
-        self.update_model_button_text()  # 设置初始显示的模型名称
-        self.update_model_button_style()  # 应用主题样式
+        self.update_model_button_text()
+        self.update_model_button_style()
         self.model_btn.clicked.connect(self.show_model_menu)
         
         # 输入框
         self.input_line = QLineEdit()
         self.input_line.setFixedHeight(50)
-        self.update_input_style()  # 使用主题感知的样式设置
+        self.update_input_style()
         self.input_line.setPlaceholderText("请输入您的问题...")
         self.input_line.returnPressed.connect(self.on_send_clicked)
+
+        # 上传附件按钮
+        self.upload_btn = QPushButton('+')
+        self.upload_btn.setFixedSize(50, 50)
+        self.upload_btn.setToolTip("上传附件")
+        self.upload_btn.setStyleSheet("""
+            QPushButton { 
+                background: rgba(255, 165, 0, 0.8); 
+                color: white; 
+                font-size: 24px; 
+                font-weight: bold;
+                border-radius: 10px; 
+                border: none;
+            }
+            QPushButton:hover { 
+                background: rgba(255, 140, 0, 0.9); 
+            }
+            QPushButton:pressed { 
+                background: rgba(255, 120, 0, 1.0); 
+            }
+        """)
+        self.upload_btn.clicked.connect(self.on_upload_clicked)
 
         # 发送按钮
         self.send_btn = QPushButton('发送')
@@ -86,7 +251,10 @@ class InputBar(QWidget):
         layout.addWidget(self.features_btn)
         layout.addWidget(self.model_btn)
         layout.addWidget(self.input_line, 1)
+        layout.addWidget(self.upload_btn)
         layout.addWidget(self.send_btn)
+        
+        main_layout.addWidget(input_widget)
     
     def update_input_style(self):
         """根据主题模式更新输入框样式"""
@@ -112,6 +280,18 @@ class InputBar(QWidget):
             """)
     
 
+    
+    def on_upload_clicked(self):
+        """上传附件按钮点击事件"""
+        file_dialog = QFileDialog(self)
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+        file_dialog.setNameFilter("所有文件 (*.*)")
+        
+        if file_dialog.exec():
+            file_paths = file_dialog.selectedFiles()
+            for file_path in file_paths:
+                self.file_container.add_file(file_path)
+                print(f"📎 已添加文件: {file_path}")
         
     def on_send_clicked(self):
         """发送按钮点击事件 - 增加状态处理"""
@@ -123,8 +303,12 @@ class InputBar(QWidget):
             # 正常发送消息
             user_input = self.input_line.text().strip()
             if user_input:
-                self.send_message_signal.emit(user_input)
+                # 获取所有上传的文件
+                files = self.file_container.get_files()
+                self.send_message_signal.emit(user_input, files)
                 self.input_line.clear()
+                # 清空文件容器
+                self.file_container.clear_files()
                 self.set_waiting_state()
     
     def set_waiting_state(self):
@@ -411,4 +595,5 @@ class InputBar(QWidget):
         self.is_dark_mode = enabled
         self.update_input_style()
         self.update_model_button_style()
+        self.file_container.set_dark_mode(enabled)
         print(f"🎨 输入栏主题更新: {'深色模式' if enabled else '浅色模式'}")

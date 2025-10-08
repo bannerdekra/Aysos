@@ -70,8 +70,9 @@ class ChatManager:
         # API 相关信号
         self.chat_window.input_bar.cancel_request_signal.connect(self.handle_cancel_request)
         
-        # 消息编辑信号
+        # 消息编辑和删除信号
         self.chat_window.chat_area.edit_message_signal.connect(self.handle_edit_message)
+        self.chat_window.delete_message_signal.connect(self.handle_delete_message)
         
         # 加载历史对话
         self.load_conversations()
@@ -208,6 +209,10 @@ class ChatManager:
         # 根据消息数量判断是否为第一条消息
         self.is_first_message = len(messages) == 0
         
+        # 【新增】同步 Gemini 上下文历史
+        # 如果使用 Gemini 且有历史记录，需要恢复 Chat Session
+        self._sync_gemini_context(conversation_id, messages)
+        
         # 清空当前显示
         self.chat_window.chat_area.clear_chat_history_display()
         
@@ -217,6 +222,37 @@ class ChatManager:
                 message['role'], 
                 message['content']
             )
+    
+    def _sync_gemini_context(self, conversation_id, messages):
+        """同步 Gemini 上下文历史"""
+        try:
+            from api_config import get_current_provider_name
+            from gemini_context_manager import get_gemini_context_manager
+            
+            # 只在使用 Gemini 时同步
+            if get_current_provider_name() != 'gemini':
+                return
+            
+            # 如果没有历史记录，无需同步
+            if not messages:
+                return
+            
+            # 获取上下文管理器
+            context_manager = get_gemini_context_manager()
+            if not context_manager:
+                print("⚠️ Gemini 上下文管理器不可用，跳过历史同步")
+                return
+            
+            # 恢复历史记录到 Chat Session
+            print(f"🔄 同步 Gemini 上下文历史到对话 {conversation_id}")
+            context_manager.restore_chat_history(conversation_id, messages)
+            print(f"✅ Gemini 上下文历史同步完成")
+            
+        except ImportError:
+            # Gemini 上下文管理器未安装
+            pass
+        except Exception as e:
+            print(f"⚠️ Gemini 上下文历史同步失败: {str(e)}")
 
     def search_text_globally(self, search_text):
         """全局搜索所有对话中的文本"""
@@ -340,9 +376,13 @@ class ChatManager:
             self.load_conversations()
             print("已重新加载对话列表")
 
-    def handle_send_message(self, user_input):
-        """处理发送消息"""
+    def handle_send_message(self, user_input, files=None):
+        """处理发送消息（支持文件上传）"""
         print(f"用户输入: {user_input}")
+        if files:
+            print(f"附带文件: {len(files)} 个")
+            for f in files:
+                print(f"  - {f}")
         
         if not self.current_conversation_id:
             print("没有当前对话，创建新对话")
@@ -364,8 +404,8 @@ class ChatManager:
         # 获取对话历史
         messages = self.storage.get_history(self.current_conversation_id)
         
-        # 创建工作线程来获取回复
-        worker = Worker(get_ai_reply, messages)
+        # 创建工作线程来获取回复（传递 conversation_id 和 files 以支持 Gemini 上下文和文件）
+        worker = Worker(get_ai_reply, messages, self.current_conversation_id, files)
         worker.signals.result.connect(
             lambda result: self.handle_api_response(result, thinking_bubble)
         )
@@ -474,6 +514,55 @@ class ChatManager:
         
         # 发送新的用户消息（这会触发API请求）
         self.handle_send_message(new_content)
+
+    def handle_delete_message(self, bubble_index):
+        """处理消息删除 - 删除指定索引的消息"""
+        print(f"删除消息: 索引={bubble_index}")
+        
+        if not self.current_conversation_id:
+            print("没有活动对话，无法删除消息")
+            return
+        
+        # 获取当前对话的所有消息
+        messages = self.storage.get_history(self.current_conversation_id)
+        
+        if bubble_index >= len(messages):
+            print(f"消息索引超出范围: {bubble_index} >= {len(messages)}")
+            return
+        
+        # 计算要删除的索引范围（用户消息 + 可能的 AI 回复）
+        target_message = messages[bubble_index]
+        
+        # 判断删除策略
+        if target_message['role'] == 'user':
+            # 如果删除用户消息，检查是否有对应的 AI 回复
+            base_index = bubble_index
+            has_pair = False
+            if base_index + 1 < len(messages) and messages[base_index + 1]['role'] == 'assistant':
+                has_pair = True
+        else:
+            # 如果删除 AI 回复，也删除对应的用户消息
+            if bubble_index > 0 and messages[bubble_index - 1]['role'] == 'user':
+                base_index = bubble_index - 1
+                has_pair = True
+            else:
+                base_index = bubble_index
+                has_pair = False
+        
+        print(f"删除基础索引: {base_index}, 成对删除: {has_pair}")
+        
+        # 从数据库删除消息
+        if has_pair:
+            # 删除两条消息（用户 + AI）
+            self.storage.delete_message_by_index(self.current_conversation_id, base_index)
+            self.storage.delete_message_by_index(self.current_conversation_id, base_index)  # 删除后索引会自动调整
+        else:
+            # 只删除一条消息
+            self.storage.delete_message_by_index(self.current_conversation_id, base_index)
+        
+        # 重新加载消息到界面
+        self.load_conversation_messages(self.current_conversation_id)
+        print("消息删除完成并刷新界面")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

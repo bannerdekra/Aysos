@@ -402,3 +402,44 @@ class FileManager:
         count = self.scan_and_rebuild_metadata()
         print(f"刷新完成，发现 {count} 个对话文件")
         return self.get_all_conversations()
+    
+    def delete_message_by_index(self, conv_id, message_index):
+        """删除指定索引的单条消息（文件存储实现）"""
+        print(f"文件存储删除消息: 对话ID={conv_id}, 索引={message_index}")
+        
+        # 获取所有消息
+        messages = self.get_history(conv_id)
+        
+        if not messages or message_index < 0 or message_index >= len(messages):
+            print(f"消息索引无效: {message_index}")
+            return
+        
+        # 删除指定索引的消息
+        messages.pop(message_index)
+        print(f"删除后剩余消息数: {len(messages)}")
+        
+        # 重写整个文件
+        metadata = self._load_metadata()
+        title = metadata["conversations"].get(conv_id, {}).get("title", "新对话")
+        file_path = self._get_conversation_file_path(conv_id, title)
+        
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(f"# 对话记录 - {timestamp}\n\n")
+                
+                # 重新写入所有消息
+                for message in messages:
+                    role_name = "用户" if message['role'] == "user" else "AI助手"
+                    f.write(f"[{timestamp}] {role_name}:\n")
+                    f.write(f"{message['content']}\n\n")
+            
+            # 更新元数据
+            if conv_id in metadata["conversations"]:
+                metadata["conversations"][conv_id]["updated_at"] = timestamp
+                self._save_metadata(metadata)
+            
+            print("文件存储删除消息完成")
+                
+        except Exception as e:
+            print(f"删除消息失败: {e}")

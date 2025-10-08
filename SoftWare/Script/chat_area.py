@@ -600,87 +600,49 @@ class ChatArea(QWidget):
 
     # 下面是新增的对话删除及辅助方法
     def delete_dialog_by_index(self, bubble_index: int):
-        """
-        删除一轮对话（用户+Agent）。如果传入的是Agent气泡索引，则一并删除其前一个用户气泡。
-        如果Agent尚未回复，仅删除用户气泡所在行。
-        同步删除左右两列对应的项，更新内部索引。
-        """
-        print(f"删除气泡索引: {bubble_index}, 当前气泡总数: {len(self.message_bubbles)}")
+        """移除指定气泡及其成对回复的UI显示。"""
         total = len(self.message_bubbles)
         if total == 0 or bubble_index < 0 or bubble_index >= total:
+            print(f"删除信号索引无效: {bubble_index}")
             return
 
-        # 计算该轮对话的起始索引（用户在前，Agent在后）
+        indices_to_remove = []
         role = self.message_bubbles[bubble_index]['role']
-        base = bubble_index if role == 'user' else max(0, bubble_index - 1)
 
-        # 安全性：若base无效则返回
-        if base < 0 or base >= len(self.message_bubbles):
-            return
+        if role == 'user':
+            indices_to_remove.append(bubble_index)
+            if bubble_index + 1 < total and self.message_bubbles[bubble_index + 1]['role'] == 'assistant':
+                indices_to_remove.append(bubble_index + 1)
+        else:
+            indices_to_remove.append(bubble_index)
+            if bubble_index - 1 >= 0 and self.message_bubbles[bubble_index - 1]['role'] == 'user':
+                indices_to_remove.insert(0, bubble_index - 1)
 
-        # 判断是否存在成对的Agent应答
-        has_pair = False
-        if base + 1 < len(self.message_bubbles):
-            r0 = self.message_bubbles[base]['role']
-            r1 = self.message_bubbles[base + 1]['role']
-            has_pair = (r0 == 'user' and r1 == 'assistant')
+        # 从最大索引开始删除，避免下标偏移
+        for idx in sorted(indices_to_remove, reverse=True):
+            if 0 <= idx < len(self.message_bubbles):
+                bubble_info = self.message_bubbles.pop(idx)
+                container = bubble_info.get('container')
+                if container:
+                    self._remove_container_from_layout(container)
 
-        # 记录要删除的消息对象，以便在UI和数据模型中都删除它们
-        bubbles_to_delete = [self.message_bubbles[base]['bubble']]
-        if has_pair and base + 1 < len(self.message_bubbles):
-            bubbles_to_delete.append(self.message_bubbles[base + 1]['bubble'])
-            
-        # 从列表中删除这些对象
-        self.message_bubbles.pop(base)
-        if has_pair and base < len(self.message_bubbles):
-            self.message_bubbles.pop(base)  # 因为已经删除了一个，所以索引不变
-            
-        # 从布局中删除对应项
-        self._remove_bubbles_from_ui(bubbles_to_delete)
-
-        # 重新编号剩余气泡
         self._reindex_bubbles()
         QApplication.processEvents()
-        
-    def _remove_bubbles_from_ui(self, bubbles):
-        """从布局中删除指定的气泡容器"""
-        print(f"开始删除气泡，总数: {len(bubbles)}")
-        
-        # 收集需要删除的容器
-        containers_to_remove = []
-        
-        for bubble in bubbles:
-            for bubble_info in self.message_bubbles:
-                if bubble_info.get('bubble') == bubble:
-                    container = bubble_info.get('container')
-                    if container:
-                        containers_to_remove.append(container)
-                    break
-        
-        # 从布局中删除容器
-        i = 0
-        while i < self.agent_layout.count():
+
+    def _remove_container_from_layout(self, container):
+        """从布局中移除指定的气泡容器及其后续间距。"""
+        for i in range(self.agent_layout.count()):
             item = self.agent_layout.itemAt(i)
-            if not item:
-                i += 1
-                continue
-                
-            # 检查是否是要删除的容器
-            if item.widget() in containers_to_remove:
-                print(f"找到要删除的消息容器")
-                item.widget().deleteLater()
+            if item and item.widget() == container:
                 self.agent_layout.takeAt(i)
-                
-                # 删除后面的间距项
+                container.deleteLater()
+
+                # 移除后续的间距项
                 if i < self.agent_layout.count():
                     next_item = self.agent_layout.itemAt(i)
                     if next_item and next_item.spacerItem():
                         self.agent_layout.takeAt(i)
-                continue  # 不增加i，因为我们刚刚删除了项
-            
-            i += 1
-        
-        print(f"气泡删除完成")
+                break
 
     # 原有的_remove_row_at和_delete_layout_item方法可以保留，
     # 但现在主要使用_remove_bubbles_from_ui进行更精确的删除

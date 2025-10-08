@@ -1,9 +1,9 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:system",
     "python-envs.pythonProjects": [],
-    // Set the workspace Python interpreter to the 'chatbot' conda environment.
+    // Set the workspace Python interpreter to the 'Agent' conda environment.
     // Update the paths below if your Anaconda/Miniconda is installed in a different location.
-    "python.defaultInterpreterPath": "E:\\Anaconda\\envs\\chatbot\\python.exe",
+    "python.defaultInterpreterPath": "D:\\Anaconda\\envs\\Agent\\python.exe",
     // Optional: path to conda executable (helps some setups detect conda envs)
-    "python.condaPath": "E:\\Anaconda\\Scripts\\conda.exe"
+    "python.condaPath": "D:\\Anaconda\\Scripts\\conda.exe"
 }
