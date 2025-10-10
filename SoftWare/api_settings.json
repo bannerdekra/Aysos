@@ -5,8 +5,8 @@
   "current_provider": "gemini",
   "providers": {
     "deepseek": {
-      "api_key": "sk-91c8333c0f754ede8de847fadade03b4",
-      "api_url": "https://api.deepseek.com/chat/completions",
+      "api_key": "sk-9*****************************b4",
+      "api_url": "http***********************************ns",
       "model": "deepseek-chat",
       "display_name": "DeepSeek"
     },

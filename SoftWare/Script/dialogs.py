@@ -258,7 +258,7 @@ class RenameDialog(QDialog):
     def __init__(self, current_title, parent=None):
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle('重命名对话')
-        self.setFixedSize(400, 120)
+        self.setFixedSize(400, 150)
         self.new_title = ''
         self.current_title = current_title
         self.theme_manager = None
@@ -1106,17 +1106,15 @@ class SettingsDialog(QDialog):
             self.right_layout.addWidget(provider_info_label)
         except Exception as e:
             print(f"获取提供商信息失败: {e}")
+            current_provider = 'deepseek'  # 默认值
         
         # API Key设置（根据提供商显示不同信息）
-        try:
-            current_provider = get_current_provider_name()
-            if current_provider == 'gemini':
-                api_key_label = QLabel("设置 Gemini API Key（回车确认）：")
-                hint_text = "Gemini API Key 将自动设置为环境变量 GEMINI_API_KEY"
-            else:
-                api_key_label = QLabel("设置您的API_Key（回车确认）：")
-                hint_text = "请输入您的API密钥"
-        except:
+        is_gemini = current_provider == 'gemini'
+        
+        if is_gemini:
+            api_key_label = QLabel("设置 Gemini API Key（回车确认）：")
+            hint_text = "Gemini API Key 将自动保存到系统环境变量 GEMINI_API_KEY"
+        else:
             api_key_label = QLabel("设置您的API_Key（回车确认）：")
             hint_text = "请输入您的API密钥"
             
@@ -1126,12 +1124,11 @@ class SettingsDialog(QDialog):
         self.right_layout.addWidget(api_key_label)
         
         # 添加提示信息
-        if 'hint_text' in locals():
-            hint_label = QLabel(hint_text)
-            hint_label.setStyleSheet(
-                f"font-size: 11px; color: {palette['text_muted']}; margin-bottom: 5px;"
-            )
-            self.right_layout.addWidget(hint_label)
+        hint_label = QLabel(hint_text)
+        hint_label.setStyleSheet(
+            f"font-size: 11px; color: {palette['text_muted']}; margin-bottom: 5px;"
+        )
+        self.right_layout.addWidget(hint_label)
         
         self.api_key_input = QLineEdit()
         self.api_key_input.setPlaceholderText("请输入API Key...")
@@ -1159,34 +1156,38 @@ class SettingsDialog(QDialog):
         spacer1 = QSpacerItem(0, 15, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.right_layout.addItem(spacer1)
         
-        # API URL设置
-        api_url_label = QLabel("设置您的模型URL（回车确认）：")
-        api_url_label.setStyleSheet(
-            f"font-size: 13px; color: {palette['text_primary']}; margin-bottom: 5px;"
-        )
-        self.right_layout.addWidget(api_url_label)
-        
-        self.api_url_input = QLineEdit()
-        self.api_url_input.setPlaceholderText("请输入模型URL...")
-        self.api_url_input.setStyleSheet(
-            f"""
-            QLineEdit {{ 
-                background-color: {palette['input_bg']}; 
-                border: 1px solid {palette['input_border']}; 
-                padding: 8px; 
-                font-size: 12px; 
-                border-radius: 4px;
-                color: {palette['text_primary']};
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {palette['highlight']};
-            }}
-        """
-        )
-        self.api_url_input.setClearButtonEnabled(True)
-        self.api_url_input.returnPressed.connect(self.save_api_url)
-        self.api_url_input.editingFinished.connect(self.save_api_url)
-        self.right_layout.addWidget(self.api_url_input)
+        # API URL设置（仅非Gemini提供商显示）
+        if not is_gemini:
+            api_url_label = QLabel("设置您的模型URL（回车确认）：")
+            api_url_label.setStyleSheet(
+                f"font-size: 13px; color: {palette['text_primary']}; margin-bottom: 5px;"
+            )
+            self.right_layout.addWidget(api_url_label)
+            
+            self.api_url_input = QLineEdit()
+            self.api_url_input.setPlaceholderText("请输入模型URL...")
+            self.api_url_input.setStyleSheet(
+                f"""
+                QLineEdit {{ 
+                    background-color: {palette['input_bg']}; 
+                    border: 1px solid {palette['input_border']}; 
+                    padding: 8px; 
+                    font-size: 12px; 
+                    border-radius: 4px;
+                    color: {palette['text_primary']};
+                }}
+                QLineEdit:focus {{
+                    border: 1px solid {palette['highlight']};
+                }}
+            """
+            )
+            self.api_url_input.setClearButtonEnabled(True)
+            self.api_url_input.returnPressed.connect(self.save_api_url)
+            self.api_url_input.editingFinished.connect(self.save_api_url)
+            self.right_layout.addWidget(self.api_url_input)
+        else:
+            # Gemini模式下，URL输入框不创建
+            self.api_url_input = None
 
         # 安全提示
         mask_hint = QLabel("提示：为了安全，仅显示前4位和末尾2位，其余部分会使用 * 掩码。")
@@ -1596,4 +1597,294 @@ class SearchDialog(QDialog):
         self.current_index = 0
         self.prev_btn.setVisible(False)
         self.next_btn.setVisible(False)
+
+
+class FileModeDialog(QDialog):
+    """文件上传模式选择对话框"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.selected_mode = None  # 'temporary' or 'persistent'
+        self.setFixedSize(300, 300)
+        self.init_ui()
+        self.apply_theme()
+    
+    def init_ui(self):
+        """初始化UI"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        # 标题
+        title_label = QLabel("选择文件上传模式")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        layout.addWidget(title_label)
+        
+        # 按钮布局
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(10)
+        
+        # 临时分析按钮
+        self.temp_btn = QPushButton("📄 临时分析")
+        self.temp_btn.setFixedHeight(40)
+        self.temp_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4A90E2;
+                color: white;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #357ABD;
+            }
+            QPushButton:pressed {
+                background-color: #2A5F8F;
+            }
+        """)
+        self.temp_btn.clicked.connect(lambda: self.select_mode('temporary'))
+        button_layout.addWidget(self.temp_btn)
+        
+        # 后续引用按钮
+        self.persist_btn = QPushButton("🔗 后续引用")
+        self.persist_btn.setFixedHeight(40)
+        self.persist_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #50C878;
+                color: white;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3FA368;
+            }
+            QPushButton:pressed {
+                background-color: #2F8350;
+            }
+        """)
+        self.persist_btn.clicked.connect(lambda: self.select_mode('persistent'))
+        button_layout.addWidget(self.persist_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # 添加取消按钮
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setFixedHeight(40)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #999999;
+                color: white;
+                border-radius: 5px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #777777;
+            }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        layout.addWidget(cancel_btn)
+    
+    def apply_theme(self):
+        """应用主题"""
+        is_dark = False
+        parent = self.parent()
+        if parent and hasattr(parent, 'theme_manager'):
+            is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+        
+        bg_color = "#2b2b2b" if is_dark else "white"
+        text_color = "white" if is_dark else "black"
+        border_color = "#555" if is_dark else "#ccc"
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+                border: 2px solid {border_color};
+                border-radius: 10px;
+            }}
+            QLabel {{
+                color: {text_color};
+            }}
+        """)
+    
+    def select_mode(self, mode):
+        """选择模式并关闭对话框"""
+        self.selected_mode = mode
+        self.accept()
+    
+    def get_selected_mode(self):
+        """获取选择的模式"""
+        return self.selected_mode
+
+
+class FilePreviewDialog(QDialog):
+    """文件预览对话框 - 支持图片、PDF、文本等文件预览"""
+    
+    def __init__(self, file_path, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.file_path = file_path
+        self.file_name = os.path.basename(file_path)
+        self.setWindowTitle(f"预览: {self.file_name}")
+        self.setMinimumSize(600, 400)
+        self.init_ui()
+        self.apply_theme()
+    
+    def init_ui(self):
+        """初始化UI"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        # 文件信息标签
+        info_label = QLabel(f"文件: {self.file_name}")
+        info_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(info_label)
+        
+        # 滚动区域（用于显示内容）
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # 内容容器
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # 根据文件类型显示内容
+        file_ext = os.path.splitext(self.file_path)[1].lower()
+        
+        if file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif']:
+            # 图片预览
+            self.show_image_preview(content_layout)
+        elif file_ext == '.pdf':
+            # PDF预览（简单提示）
+            self.show_pdf_preview(content_layout)
+        elif file_ext in ['.mp4', '.avi', '.mov', '.mkv']:
+            # 视频预览（简单提示）
+            self.show_video_preview(content_layout)
+        else:
+            # 不支持的文件类型
+            self.show_unsupported_preview(content_layout)
+        
+        scroll_area.setWidget(content_widget)
+        layout.addWidget(scroll_area)
+        
+        # 关闭按钮
+        close_btn = QPushButton("关闭")
+        close_btn.setFixedSize(100, 35)
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+    
+    def show_image_preview(self, layout):
+        """显示图片预览"""
+        try:
+            pixmap = QPixmap(self.file_path)
+            if not pixmap.isNull():
+                # 限制最大显示尺寸
+                max_width = 800
+                max_height = 600
+                if pixmap.width() > max_width or pixmap.height() > max_height:
+                    pixmap = pixmap.scaled(max_width, max_height, 
+                                         Qt.AspectRatioMode.KeepAspectRatio,
+                                         Qt.TransformationMode.SmoothTransformation)
+                
+                label = QLabel()
+                label.setPixmap(pixmap)
+                label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                layout.addWidget(label)
+            else:
+                layout.addWidget(QLabel("无法加载图片"))
+        except Exception as e:
+            layout.addWidget(QLabel(f"加载图片失败: {str(e)}"))
+    
+    def show_text_preview(self, layout):
+        """显示文本预览"""
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                content = f.read(10000)  # 最多读取10000字符
+            
+            text_label = QLabel(content)
+            text_label.setWordWrap(True)
+            text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            text_label.setStyleSheet("padding: 10px; background: rgba(0,0,0,0.05); border-radius: 5px;")
+            layout.addWidget(text_label)
+            
+            if len(content) == 10000:
+                layout.addWidget(QLabel("（仅显示前10000字符）"))
+        except Exception as e:
+            layout.addWidget(QLabel(f"读取文件失败: {str(e)}"))
+    
+    def show_pdf_preview(self, layout):
+        """显示PDF预览提示"""
+        label = QLabel("📄 PDF文件\n\n此文件已上传，AI可以分析其内容。\n如需查看完整内容，请使用PDF阅读器打开。")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("font-size: 14px; padding: 20px;")
+        layout.addWidget(label)
+        
+        # 添加打开文件按钮
+        open_btn = QPushButton("用系统默认程序打开")
+        open_btn.clicked.connect(lambda: os.startfile(self.file_path))
+        layout.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+    
+    def show_video_preview(self, layout):
+        """显示视频预览提示"""
+        label = QLabel("🎬 视频文件\n\n此文件已上传，AI可以分析其内容。\n如需查看完整内容，请使用视频播放器打开。")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("font-size: 14px; padding: 20px;")
+        layout.addWidget(label)
+        
+        # 添加打开文件按钮
+        open_btn = QPushButton("用系统默认程序打开")
+        open_btn.clicked.connect(lambda: os.startfile(self.file_path))
+        layout.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+    
+    def show_unsupported_preview(self, layout):
+        """显示不支持的文件类型提示"""
+        label = QLabel(f"📁 {os.path.splitext(self.file_name)[1]} 文件\n\n此文件类型不支持预览。")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("font-size: 14px; padding: 20px;")
+        layout.addWidget(label)
+        
+        # 添加打开文件按钮
+        open_btn = QPushButton("用系统默认程序打开")
+        open_btn.clicked.connect(lambda: os.startfile(self.file_path))
+        layout.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+    
+    def apply_theme(self):
+        """应用主题"""
+        is_dark = False
+        parent = self.parent()
+        if parent and hasattr(parent, 'theme_manager'):
+            is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+        
+        bg_color = "#2b2b2b" if is_dark else "#f5f5f5"
+        text_color = "white" if is_dark else "black"
+        border_color = "#555" if is_dark else "#ccc"
+        btn_bg = "#3a3a3a" if is_dark else "#e0e0e0"
+        btn_hover = "#4a4a4a" if is_dark else "#d0d0d0"
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+                border: 2px solid {border_color};
+                border-radius: 10px;
+            }}
+            QLabel {{
+                color: {text_color};
+            }}
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {text_color};
+                border: 1px solid {border_color};
+                border-radius: 5px;
+                padding: 8px 15px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+            }}
+        """)
+
 

@@ -7,6 +7,7 @@ from api_client import get_ai_reply, get_topic_from_reply
 from storage_config import StorageConfig
 from dialogs import ChatConfigDialog, DSNConfigDialog, show_connection_result
 
+
 class WorkerSignals(QObject):
     result = pyqtSignal(str)
     topic_result = pyqtSignal(str)
@@ -379,10 +380,19 @@ class ChatManager:
     def handle_send_message(self, user_input, files=None):
         """处理发送消息（支持文件上传）"""
         print(f"用户输入: {user_input}")
-        if files:
-            print(f"附带文件: {len(files)} 个")
-            for f in files:
-                print(f"  - {f}")
+        
+        # 【调试日志】详细检查文件参数
+        if files is None:
+            print("📎 main.py: files 参数为 None")
+        elif len(files) == 0:
+            print("📎 main.py: files 参数为空列表 []")
+        else:
+            print(f"📎 main.py: 接收到 {len(files)} 个文件")
+            for i, f in enumerate(files, 1):
+                print(f"   [{i}] 类型: {type(f)}, 内容: {f}")
+                if isinstance(f, dict):
+                    for key, value in f.items():
+                        print(f"       {key}: {value}")
         
         if not self.current_conversation_id:
             print("没有当前对话，创建新对话")
@@ -448,10 +458,16 @@ class ChatManager:
         # 如果这是对话的第一条消息，生成标题
         if self.is_first_message:
             self.is_first_message = False
-            self.generate_conversation_title(self.first_user_message)
+            # 【修复】使用 AI 回复内容生成标题，特别是包含附件分析的情况
+            self.generate_conversation_title(response)
         
-        # 重置输入框按钮状态为正常状态
-        self.chat_window.input_bar.set_normal_state()
+        # 检查响应是否为错误消息
+        if not response.startswith("Error"):
+            # 发送成功，清除临时文件（保留持久文件）
+            self.chat_window.input_bar.on_send_success()
+        else:
+            # 发送失败，保留所有文件
+            self.chat_window.input_bar.set_normal_state()
         
         # 清空当前工作线程引用
         self.current_worker = None

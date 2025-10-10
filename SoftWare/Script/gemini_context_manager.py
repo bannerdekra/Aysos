@@ -7,6 +7,12 @@ import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 
+# 导入 Base64 和 MIME 类型处理库（用于文件处理）
+import mimetypes
+
+# 导入密钥获取函数
+from api_config import get_gemini_api_key
+
 # 检查 Google GenAI SDK 是否可用
 GENAI_AVAILABLE = False
 try:
@@ -17,6 +23,34 @@ try:
 except ImportError:
     print("❌ Gemini 上下文管理器：Google GenAI SDK 未安装")
     GENAI_AVAILABLE = False
+
+# --- 允许的文件MIME类型定义 ---
+# 视频文件MIME类型（必须走 File API）
+VIDEO_MIME_TYPES = [
+    'video/mp4',
+    'video/mov', 
+    'video/mpeg',
+    'video/avi',
+    'video/quicktime',
+    'video/x-msvideo',
+    'video/webm'
+]
+
+# 图像文件MIME类型（小文件走内嵌，大文件走 File API）
+IMAGE_MIME_TYPES = [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/heic',
+    'image/heif',
+]
+
+# PDF文件MIME类型（小文件走内嵌，大文件走 File API）
+PDF_MIME_TYPE = 'application/pdf'
+
+# 所有允许的MIME类型（仅支持图片、PDF、视频）
+ALLOWED_MIME_TYPES = IMAGE_MIME_TYPES + [PDF_MIME_TYPE] + VIDEO_MIME_TYPES
 
 
 class GeminiContextManager:
@@ -30,18 +64,38 @@ class GeminiContextManager:
     4. 自动处理会话历史
     """
     
-    def __init__(self):
-        """初始化上下文管理器"""
+    def __init__(self, api_key: str):
+        """
+        初始化上下文管理器
+        
+        Args:
+            api_key: Gemini API 密钥
+        """
         if not GENAI_AVAILABLE:
             raise ImportError("Google GenAI SDK 未安装，无法使用上下文管理器")
         
-        # 检查环境变量
-        self.api_key = os.getenv('GEMINI_API_KEY')
-        if not self.api_key:
-            raise ValueError("GEMINI_API_KEY 环境变量未设置")
+        if not api_key:
+            raise ValueError("api_key 参数不能为空")
         
-        # 创建客户端
-        self.client = genai.Client()
+        # 【核心修复】临时移除代理环境变量，避免与 gRPC 认证冲突
+        # 保存原始代理设置
+        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+        saved_proxies = {}
+        
+        for var in proxy_vars:
+            if var in os.environ:
+                saved_proxies[var] = os.environ.pop(var)
+                print(f"🔧 临时移除代理变量: {var}")
+        
+        try:
+            # 在无代理环境下创建客户端（避免 gRPC 认证问题）
+            self.client = genai.Client(api_key=api_key)
+            print("✅ Gemini 客户端创建成功（代理已隔离）")
+        finally:
+            # 恢复代理环境变量，确保其他模块（如 requests）能继续使用代理
+            for var, value in saved_proxies.items():
+                os.environ[var] = value
+                print(f"🔄 恢复代理变量: {var}")
         
         # 会话管理：conversation_id -> chat_session
         self.chat_sessions: Dict[str, Any] = {}
@@ -149,21 +203,24 @@ class GeminiContextManager:
             print(f"❌ 发送消息失败: {str(e)}")
             return f"Error: {str(e)}"
     
-    ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg'}
+    ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp4', '.mov', '.mpeg', '.avi', '.webm'}
 
     def send_message_with_files(self, conversation_id: str, message: str, 
-                                file_paths: List[str], model: str = "gemini-2.5-flash") -> str:
+                                file_paths: List[str] = None, 
+                                persistent_file_ids: List[str] = None,
+                                model: str = "gemini-2.5-flash") -> str:
         """
-        发送包含文件的消息（多模态上下文）
+        发送包含文件的消息（多模态上下文）- 支持临时和持久两种模式
         
-        智能处理文件上传：
-        - 小于20MB：使用 Part.from_bytes 内嵌上传
-        - 大于等于20MB：使用 File API 上传
+        文件上传策略：
+        - 临时文件 (file_paths): 使用 Part.from_bytes 内嵌上传（<20MB），发送后自动删除
+        - 持久文件 (persistent_file_ids): 使用已上传的 File API 引用，保留在服务器上
         
         Args:
             conversation_id: 对话ID
             message: 用户消息内容
-            file_paths: 要上传的文件路径列表
+            file_paths: 临时文件路径列表（内嵌上传）
+            persistent_file_ids: 持久文件ID列表（File API引用）
             model: 使用的模型名称
             
         Returns:
@@ -178,61 +235,128 @@ class GeminiContextManager:
             raise ValueError(f"无法获取对话 {conversation_id} 的 Chat Session")
         
         try:
-            # 处理文件：统一使用 File API 上传，并限制允许的文件类型
             content_parts = []
+            
+            # 定义文件大小阈值
+            MAX_INLINE_SIZE = 20 * 1024 * 1024  # 20 MB
+            MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB
+            
+            # 1. 处理临时文件：根据类型和大小选择上传方式
+            if file_paths:
+                for file_path in file_paths:
+                    if not os.path.exists(file_path):
+                        print(f"⚠️ 文件不存在: {file_path}")
+                        continue
 
-            for file_path in file_paths:
-                if not os.path.exists(file_path):
-                    print(f"⚠️ 文件不存在: {file_path}")
-                    continue
+                    file_ext = os.path.splitext(file_path)[1].lower()
+                    if file_ext not in self.ALLOWED_EXTENSIONS:
+                        print(f"⚠️ 不支持的文件扩展名: {file_path}")
+                        continue
 
-                file_ext = os.path.splitext(file_path)[1].lower()
-                if file_ext not in self.ALLOWED_EXTENSIONS:
-                    print(f"⚠️ 不支持的文件类型: {file_path}，仅支持 PDF、JPG、PNG")
-                    continue
+                    file_size = os.path.getsize(file_path)
+                    file_name = os.path.basename(file_path)
+                    mime_type = self._get_mime_type(file_path)
 
-                file_size = os.path.getsize(file_path)
-                file_name = os.path.basename(file_path)
+                    # --- 【核心过滤】只允许图片、PDF、视频 ---
+                    if mime_type not in ALLOWED_MIME_TYPES:
+                        print(f"❌ 文件类型不受支持，跳过: {file_name} (MIME: {mime_type})")
+                        continue
 
-                print(f"📁 上传文件: {file_name} ({file_size / (1024*1024):.2f} MB)")
+                    # 检查文件大小硬限制
+                    if file_size > MAX_FILE_SIZE:
+                        print(f"❌ 文件过大（> 2GB），无法上传: {file_name}")
+                        continue
 
-                mime_type = self._get_mime_type(file_path)
+                    # 判断是否为视频文件
+                    is_video = mime_type in VIDEO_MIME_TYPES
+                    is_large_file = file_size >= MAX_INLINE_SIZE
 
-                try:
-                    uploaded_file = self._upload_file_to_gemini(file_path, mime_type)
-                    content_parts.append(uploaded_file)
-                except Exception as upload_error:
-                    print(f"❌ 文件上传失败: {file_path}, 错误: {upload_error}")
+                    # --- 视频/大文件（>= 20MB）使用 File API ---
+                    if is_video or is_large_file:
+                        file_type_desc = "视频文件" if is_video else "大文件"
+                        print(f"📁 {file_type_desc}使用 File API: {file_name} ({file_size / (1024*1024):.2f} MB)")
+                        try:
+                            uploaded_file = self._upload_file_to_gemini(file_path, mime_type)
+                            content_parts.append(uploaded_file)
+                            print(f"  → File API 上传成功 (文件将在服务器保留48小时)")
+                            
+                        except Exception as upload_error:
+                            print(f"❌ File API 上传失败: {file_path}, 错误: {upload_error}")
+                        continue
+
+                    # --- 小文件（图片/PDF, < 20MB）内嵌上传 ---
+                    print(f"�️ 内嵌上传小文件: {file_name} (MIME: {mime_type}, {file_size / (1024*1024):.2f} MB)")
+
+                    try:
+                        # 使用 Part.from_bytes 内嵌上传
+                        with open(file_path, 'rb') as f:
+                            file_data = f.read()
+                        
+                        inline_part = Part.from_bytes(data=file_data, mime_type=mime_type)
+                        content_parts.append(inline_part)
+                        print(f"  → 内嵌上传成功 (MIME: {mime_type})")
+                        
+                    except Exception as upload_error:
+                        print(f"❌ 内嵌上传失败: {file_path}, 错误: {upload_error}")
+            
+            # 2. 处理持久文件：使用 File API 引用
+            if persistent_file_ids:
+                for file_id in persistent_file_ids:
+                    try:
+                        # 检查文件是否在缓存中
+                        if file_id in self.uploaded_files:
+                            uploaded_file = self.uploaded_files[file_id]['file']
+                            content_parts.append(uploaded_file)
+                            print(f"🔗 引用持久文件: {file_id} (已缓存)")
+                        else:
+                            # 尝试使用 Part.from_uri 引用文件
+                            file_uri = f"https://generativelanguage.googleapis.com/v1beta/{file_id}"
+                            persistent_part = Part.from_uri(file_uri)
+                            content_parts.append(persistent_part)
+                            print(f"🔗 引用持久文件: {file_id} (URI)")
+                            
+                    except Exception as ref_error:
+                        print(f"❌ 引用持久文件失败: {file_id}, 错误: {ref_error}")
+            
+            # 【核心修复】文本消息必须转换为 Part 对象
+            # 即使没有文件，也要使用 Part 结构发送
+            text_part = Part(text=message)
             
             if not content_parts:
-                print("⚠️ 没有成功处理任何文件，按普通消息发送")
-                return self.send_message(conversation_id, message, model)
-            
-            # 构建完整的内容（文件 + 文本提示）
-            # 注意：根据官方示例，文件应该在前面，文本提示在后面
-            contents = content_parts + [message]
+                print("⚠️ 没有成功处理任何文件，但仍使用 Part 结构发送文本")
+                contents = [text_part]
+            else:
+                # 构建完整的内容（文件 + 文本提示）
+                # 注意：根据官方文档，图片应在前，文本在后
+                contents = content_parts + [text_part]
             
             print(f"📤 发送消息（含 {len(content_parts)} 个文件）到对话 {conversation_id}")
-            print(f"📝 内容顺序: [{len(content_parts)} 个文件] + [文本提示]")
+            print(f"📝 内容顺序: [{len(content_parts)} 个文件 Part] + [1 个文本 Part]")
             
             # 发送消息（直接传递列表，不使用命名参数）
             response = chat.send_message(contents)
             
             if response and response.text:
                 print(f"✅ 收到回复: {response.text[:50]}...")
+                
                 return response.text
             else:
-                return "Error: Empty response from Gemini."
+                error_msg = "Empty response from Gemini."
+                
+                return f"Error: {error_msg}"
         
         except Exception as e:
             print(f"❌ 发送包含文件的消息失败: {str(e)}")
             import traceback
             traceback.print_exc()
+           
             return f"Error: {str(e)}"
 
     def _upload_file_to_gemini(self, file_path: str, mime_type: str):
         """使用 Gemini File API 上传文件，并缓存返回的文件引用。"""
-        uploaded_file = self.client.files.upload(file=file_path, mime_type=mime_type)
+        # 修复：使用正确的 genai.upload_file 方法
+        import google.generativeai as genai
+        uploaded_file = genai.upload_file(path=file_path, mime_type=mime_type)
 
         file_id = uploaded_file.name if hasattr(uploaded_file, 'name') else str(len(self.uploaded_files))
         self.uploaded_files[file_id] = {
@@ -245,7 +369,7 @@ class GeminiContextManager:
     
     def _get_mime_type(self, file_path: str) -> str:
         """
-        根据文件扩展名获取 MIME 类型
+        获取文件的 MIME 类型，对常见类型进行补充以提高准确性
         
         Args:
             file_path: 文件路径
@@ -255,39 +379,45 @@ class GeminiContextManager:
         """
         import mimetypes
         
-        # 尝试自动检测
+        # 1. 使用 mimetypes 库进行猜测
         mime_type, _ = mimetypes.guess_type(file_path)
-        
         if mime_type:
             return mime_type
         
-        # 常见文件类型的手动映射
+        # 2. 针对常见扩展名进行手动检查
         ext = os.path.splitext(file_path)[1].lower()
-        mime_map = {
-            '.pdf': 'application/pdf',
-            '.txt': 'text/plain',
-            '.py': 'text/x-python',
-            '.js': 'text/javascript',
-            '.java': 'text/x-java',
-            '.cpp': 'text/x-c++',
-            '.c': 'text/x-c',
-            '.html': 'text/html',
-            '.css': 'text/css',
-            '.json': 'application/json',
-            '.xml': 'application/xml',
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.gif': 'image/gif',
-            '.bmp': 'image/bmp',
-            '.svg': 'image/svg+xml',
-            '.mp3': 'audio/mpeg',
-            '.mp4': 'video/mp4',
-            '.wav': 'audio/wav',
-            '.avi': 'video/x-msvideo',
-        }
         
-        return mime_map.get(ext, 'application/octet-stream')
+        # 视频文件
+        if ext in ['.mp4', '.mov', '.mpeg', '.avi', '.webm']:
+            video_mime_map = {
+                '.mp4': 'video/mp4',
+                '.mov': 'video/quicktime',
+                '.mpeg': 'video/mpeg',
+                '.avi': 'video/x-msvideo',
+                '.webm': 'video/webm'
+            }
+            return video_mime_map.get(ext, f'video/{ext[1:]}')
+        
+        # PDF文件
+        if ext == '.pdf':
+            return 'application/pdf'
+        
+        # 图片文件
+        if ext in ['.jpg', '.jpeg']:
+            return 'image/jpeg'
+        if ext == '.png':
+            return 'image/png'
+        if ext == '.webp':
+            return 'image/webp'
+        if ext == '.heic':
+            return 'image/heic'
+        if ext == '.heif':
+            return 'image/heif'
+        if ext == '.gif':
+            return 'image/gif'
+        
+        # 3. 默认返回通用类型（如果不在允许列表内，后续会被过滤）
+        return 'application/octet-stream'
     
     def get_chat_history(self, conversation_id: str) -> List[Dict[str, Any]]:
         """
@@ -492,6 +622,37 @@ class GeminiContextManager:
             del self.uploaded_files[file_id]
             print(f"🗑️ 已清理过期文件引用: {file_id}")
     
+    def delete_server_file(self, file_id: str) -> bool:
+        """
+        从 Gemini 服务器删除文件（用于持久文件的手动删除）
+        
+        Args:
+            file_id: 文件ID（格式：files/xxx）
+            
+        Returns:
+            删除成功返回 True，失败返回 False
+        """
+        try:
+            print(f"🗑️ 删除服务器文件: {file_id}")
+            # 修复：使用正确的 genai.delete_file 方法
+            import google.generativeai as genai
+            genai.delete_file(name=file_id)
+            
+            # 从缓存中移除
+            if file_id in self.uploaded_files:
+                del self.uploaded_files[file_id]
+                print(f"✅ 文件已从服务器和缓存中删除: {file_id}")
+            else:
+                print(f"✅ 文件已从服务器删除: {file_id}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ 删除服务器文件失败: {file_id}, 错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def get_session_info(self, conversation_id: str) -> Optional[Dict[str, Any]]:
         """
         获取指定对话的会话信息
@@ -503,6 +664,148 @@ class GeminiContextManager:
             会话信息字典，包含模型、创建时间等
         """
         return self.chat_sessions.get(conversation_id)
+    
+    def _extract_text_from_response(self, response) -> str:
+        """
+        从 Gemini 响应对象中提取文本内容
+        
+        Args:
+            response: Gemini API 响应对象
+            
+        Returns:
+            提取的文本内容
+        """
+        try:
+            if response and hasattr(response, 'text') and response.text:
+                return response.text
+            # 兼容其他可能的响应结构
+            if response and hasattr(response, 'candidates') and response.candidates:
+                if response.candidates[0].content.parts:
+                    return response.candidates[0].content.parts[0].text
+        except Exception as e:
+            print(f"⚠️ 提取响应文本失败: {e}")
+        return "AI 助手未返回有效内容。"
+    
+    def send_text_message(self, conversation_id: str, message: str, model: str = "gemini-2.5-flash") -> str:
+        """
+        发送纯文本消息
+        
+        Args:
+            conversation_id: 对话ID
+            message: 消息内容
+            model: 模型名称
+            
+        Returns:
+            模型回复文本
+        """
+        # 确保 Chat Session 存在
+        if conversation_id not in self.chat_sessions:
+            self.create_chat_session(conversation_id, model)
+        
+        chat = self.get_chat_session(conversation_id)
+        if not chat:
+            raise ValueError(f"无法获取对话 {conversation_id} 的 Chat Session")
+        
+        try:
+            print(f"📤 发送纯文本消息: {message[:50]}...")
+            response = chat.send_message(message)
+            return self._extract_text_from_response(response)
+        except Exception as e:
+            print(f"❌ 发送纯文本消息失败: {str(e)}")
+            return f"Error: {str(e)}"
+    
+    def upload_file_for_context(self, conversation_id: str, message: str, 
+                                file_paths: List[str], model: str = "gemini-2.5-flash") -> str:
+        """
+        上传文件到 File API 并使用其引用进行对话（文件引用会保留在聊天历史中）
+        
+        这是持久化模式，文件上传到 Gemini 服务器，可在多轮对话中引用。
+        
+        Args:
+            conversation_id: 对话ID
+            message: 用户消息内容
+            file_paths: 要上传的文件路径列表
+            model: 使用的模型名称
+            
+        Returns:
+            模型的回复文本
+        """
+        print(f"🔗 持久化模式：上传 {len(file_paths)} 个文件到服务器")
+        
+        # 使用现有的 send_message_with_files，但只使用 persistent 模式
+        file_ids = []
+        for file_path in file_paths:
+            if not os.path.exists(file_path):
+                print(f"⚠️ 文件不存在: {file_path}")
+                continue
+            
+            try:
+                mime_type = self._get_mime_type(file_path)
+                uploaded_file = self._upload_file_to_gemini(file_path, mime_type)
+                
+                if hasattr(uploaded_file, 'name'):
+                    file_ids.append(uploaded_file.name)
+                    print(f"✅ 文件上传成功: {uploaded_file.name}")
+            except Exception as e:
+                print(f"❌ 文件上传失败: {file_path}, 错误: {str(e)}")
+        
+        if not file_ids:
+            print("⚠️ 没有成功上传任何文件，发送纯文本消息")
+            return self.send_text_message(conversation_id, message, model)
+        
+        # 使用 persistent_file_ids 发送消息
+        return self.send_message_with_files(
+            conversation_id=conversation_id,
+            message=message,
+            file_paths=None,
+            persistent_file_ids=file_ids,
+            model=model
+        )
+    
+    def attach_file_for_onetime(self, conversation_id: str, message: str, 
+                               file_paths: List[str], model: str = "gemini-2.5-flash") -> str:
+        """
+        将文件内容 Base64 编码后作为内嵌数据发送（内容仅在当前请求中有效）
+        
+        这是临时模式，文件不上传到服务器，仅在本次对话中使用。适合 <20MB 的文件。
+        
+        Args:
+            conversation_id: 对话ID
+            message: 用户消息内容
+            file_paths: 要内嵌的文件路径列表
+            model: 使用的模型名称
+            
+        Returns:
+            模型的回复文本
+        """
+        print(f"📄 临时模式：内嵌 {len(file_paths)} 个文件")
+        
+        # 检查文件大小限制
+        valid_files = []
+        for file_path in file_paths:
+            if not os.path.exists(file_path):
+                print(f"⚠️ 文件不存在: {file_path}")
+                continue
+            
+            file_size = os.path.getsize(file_path)
+            if file_size >= 20 * 1024 * 1024:
+                print(f"⚠️ 文件超过 20MB 限制，跳过: {file_path} ({file_size / (1024*1024):.2f} MB)")
+                continue
+            
+            valid_files.append(file_path)
+        
+        if not valid_files:
+            print("⚠️ 没有有效的文件，发送纯文本消息")
+            return self.send_text_message(conversation_id, message, model)
+        
+        # 使用 file_paths 发送消息（临时模式）
+        return self.send_message_with_files(
+            conversation_id=conversation_id,
+            message=message,
+            file_paths=valid_files,
+            persistent_file_ids=None,
+            model=model
+        )
 
 
 # 全局单例
@@ -520,9 +823,20 @@ def get_gemini_context_manager() -> Optional[GeminiContextManager]:
     
     if _gemini_context_manager is None:
         try:
-            _gemini_context_manager = GeminiContextManager()
+            # 从配置中获取 API 密钥
+            api_key = get_gemini_api_key()
+            
+            if not api_key:
+                print("❌ 无法获取 Gemini API 密钥，请检查环境变量或配置文件")
+                return None
+            
+            # 使用密钥初始化上下文管理器
+            _gemini_context_manager = GeminiContextManager(api_key=api_key)
+            
         except Exception as e:
             print(f"❌ 初始化 Gemini 上下文管理器失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
     
     return _gemini_context_manager

@@ -210,19 +210,45 @@ def switch_provider(provider_name: str) -> bool:
 
 
 def set_gemini_api_key(api_key: str) -> bool:
-    """设置 Gemini API 密钥，同时更新配置文件和环境变量。"""
+    """设置 Gemini API 密钥，同时更新配置文件、进程环境变量和系统环境变量。"""
     import os
+    import platform
     
     try:
-        # 设置环境变量
+        # 1. 设置当前进程环境变量
         os.environ['GEMINI_API_KEY'] = api_key
+        print(f"✅ 已设置进程环境变量 GEMINI_API_KEY")
         
-        # 同时保存到配置文件
+        # 2. 保存到配置文件
         update_api_config(api_key=api_key)
+        print(f"✅ 已保存到配置文件")
+        
+        # 3. 设置系统环境变量（Windows）
+        if platform.system() == 'Windows':
+            try:
+                import winreg
+                # 打开用户环境变量注册表
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment', 0, winreg.KEY_SET_VALUE)
+                winreg.SetValueEx(key, 'GEMINI_API_KEY', 0, winreg.REG_SZ, api_key)
+                winreg.CloseKey(key)
+                print(f"✅ 已设置Windows系统环境变量 GEMINI_API_KEY")
+                
+                # 广播环境变量更改消息
+                import ctypes
+                HWND_BROADCAST = 0xFFFF
+                WM_SETTINGCHANGE = 0x001A
+                ctypes.windll.user32.SendMessageTimeoutW(
+                    HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment', 
+                    2, 1000, None
+                )
+                print(f"✅ 已广播环境变量更改")
+            except Exception as e:
+                print(f"⚠️ 设置Windows系统环境变量失败: {e}")
+                print(f"⚠️ 但进程环境变量已设置，程序可以正常使用")
         
         return True
     except Exception as e:
-        print(f"设置 Gemini API 密钥失败: {e}")
+        print(f"❌ 设置 Gemini API 密钥失败: {e}")
         return False
 
 

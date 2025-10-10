@@ -245,23 +245,11 @@ class ChatArea(QWidget):
         # 创建用户气泡标签
         user_bubble = CopyableBubbleLabel(user_text, side='right', parent=message_row)
         user_bubble.setWordWrap(True)
-        
-        # 设置气泡最大宽度为聊天区域宽度的60%
-        max_width = int((self.width() - 32) * 0.6)  # 减去边距
+        max_width = int((self.width() - 32) * 0.6)
         user_bubble.setMaximumWidth(max_width)
-        
-        # 关键：设置为Preferred策略以实现动态收缩
         user_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        
-        # 手动换行特殊处理
         if '\n' in user_text:
-            # 包含换行符的文本，强制接近最大宽度
             user_bubble.setMinimumWidth(int(max_width * 0.95))
-            # 或者使用stretch方式
-            # user_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-            # user_bubble.sizePolicy().setHorizontalStretch(1)
-        
-        # 设置气泡索引和存储
         bubble_index = len(self.message_bubbles)
         user_bubble.set_bubble_index(bubble_index)
         self.message_bubbles.append({
@@ -270,8 +258,6 @@ class ChatArea(QWidget):
             'content': user_text,
             'container': message_row
         })
-        
-        # 用户气泡样式
         user_bubble.setStyleSheet("""
             QLabel {
                 background: rgb(50,205,50); 
@@ -282,24 +268,26 @@ class ChatArea(QWidget):
                 margin: 4px;
             }
         """)
-        
-        # 添加左侧弹簧实现右对齐
         left_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         row_layout.addItem(left_spacer)
         row_layout.addWidget(user_bubble)
-        
-        # 添加消息行到主布局
+
+        # 新增：显示临时文件名（如有）
+        if hasattr(self.parent(), 'input_bar'):
+            temp_files = self.parent().input_bar.get_temporary_files() if hasattr(self.parent().input_bar, 'get_temporary_files') else []
+            if temp_files:
+                for file_path in temp_files:
+                    file_name = os.path.basename(file_path)
+                    file_label = QLabel(f"📄 {file_name}", parent=message_row)
+                    file_label.setStyleSheet("color: #555; font-size: 13px; margin-left: 24px; margin-bottom: 2px;")
+                    row_layout.addWidget(file_label)
+
         self.agent_layout.addWidget(message_row)
-        
-        # 添加消息间间距
         spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.agent_layout.addItem(spacer_item)
-        
-        # 触发重新计算和重绘
         message_row.adjustSize()
         user_bubble.adjustSize()
         self.chat_content.update()
-        
         self._scroll_to_bottom_precisely()
 
     def add_thinking_bubble(self):
@@ -379,27 +367,13 @@ class ChatArea(QWidget):
         row_layout = QHBoxLayout(message_row)
         row_layout.setContentsMargins(8, 4, 8, 4)
         row_layout.setSpacing(0)
-        
-        # 创建Agent气泡标签
         agent_bubble = CopyableBubbleLabel(reply_text, side='left', parent=message_row)
         agent_bubble.setWordWrap(True)
-        
-        # 设置气泡最大宽度为聊天区域宽度的60%
-        max_width = int((self.width() - 32) * 0.6)  # 减去边距
+        max_width = int((self.width() - 32) * 0.6)
         agent_bubble.setMaximumWidth(max_width)
-        
-        # 关键：设置为Preferred策略以实现动态收缩
         agent_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        
-        # 手动换行特殊处理
         if '\n' in reply_text:
-            # 包含换行符的文本，强制接近最大宽度
             agent_bubble.setMinimumWidth(int(max_width * 0.95))
-            # 或者使用stretch方式
-            # agent_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-            # agent_bubble.sizePolicy().setHorizontalStretch(1)
-        
-        # 设置气泡索引和存储
         bubble_index = len(self.message_bubbles)
         agent_bubble.set_bubble_index(bubble_index)
         self.message_bubbles.append({
@@ -408,8 +382,6 @@ class ChatArea(QWidget):
             'content': reply_text,
             'container': message_row
         })
-        
-        # Agent气泡样式
         agent_bubble.setStyleSheet("""
             QLabel {
                 background: rgb(30,144,255); 
@@ -420,24 +392,24 @@ class ChatArea(QWidget):
                 margin: 4px;
             }
         """)
-        
-        # 添加气泡和右侧弹簧实现左对齐
         row_layout.addWidget(agent_bubble)
+        # 新增：显示Agent引用的文件名（如有）
+        if hasattr(self.parent(), 'input_bar'):
+            persistent_files = self.parent().input_bar.get_persistent_files() if hasattr(self.parent().input_bar, 'get_persistent_files') else []
+            if persistent_files:
+                for file_info in persistent_files:
+                    file_name = os.path.basename(file_info['path'])
+                    file_label = QLabel(f"🔗 {file_name}", parent=message_row)
+                    file_label.setStyleSheet("color: #555; font-size: 13px; margin-left: 24px; margin-bottom: 2px;")
+                    row_layout.addWidget(file_label)
         right_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         row_layout.addItem(right_spacer)
-        
-        # 添加消息行到主布局
         self.agent_layout.addWidget(message_row)
-        
-        # 添加消息间间距
         spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.agent_layout.addItem(spacer_item)
-        
-        # 触发重新计算和重绘
         message_row.adjustSize()
         agent_bubble.adjustSize()
         self.chat_content.update()
-        
         self._scroll_to_bottom_precisely()
         self.current_thinking_bubble = None
 

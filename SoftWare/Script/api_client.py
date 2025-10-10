@@ -30,10 +30,11 @@ except ImportError:
     GEMINI_CONTEXT_AVAILABLE = False
     print("⚠️ Gemini 上下文管理器未导入")
 
+
 # 修改为正确的相对路径
 SPINNER_GIF_URL = os.path.join('SoftWare', 'Image', 'loading', 'loading3.gif')
 
-def get_ai_reply(messages, conversation_id=None, files=None):
+def get_ai_reply(messages, conversation_id=None, files=None, is_one_time_attachment=None):
     """
     Calls the configured AI API and returns the AI's reply.
     Supports DeepSeek, Gemini (with context and files), and other providers.
@@ -42,8 +43,14 @@ def get_ai_reply(messages, conversation_id=None, files=None):
         messages (list): A list of dictionaries, where each dictionary represents a message
                          with 'role' and 'content' keys. This is the chat history.
         conversation_id (str, optional): 对话ID，用于 Gemini 上下文管理
-        files (list, optional): 文件路径列表，用于 Gemini 多模态支持
+        files (list, optional): 文件信息，支持两种格式：
+                               1. 字典列表 [{'path': str, 'mode': str, 'file_id': str}]
+                               2. 简单路径列表 [str]（配合 is_one_time_attachment 参数）
+        is_one_time_attachment (bool, optional): 如果为 True，使用 Base64 内嵌（仅本次使用）；
+                                                如果为 False，使用 File API 上传（上下文持久化）。
+                                                当 files 为字典列表时，此参数被忽略。
     """
+    
     provider_name = get_current_provider_name()
     provider_config = get_current_provider_config()
     
@@ -64,7 +71,7 @@ def get_ai_reply(messages, conversation_id=None, files=None):
         if provider_name == 'deepseek':
             return _call_deepseek_api(messages, api_key, api_url, model_name)
         elif provider_name == 'gemini':
-            return _call_gemini_api_with_context(messages, api_key, model_name, conversation_id, files)
+            return _call_gemini_api_with_context(messages, api_key, model_name, conversation_id, files, is_one_time_attachment)
         else:
             # Default to OpenAI-compatible format
             return _call_openai_compatible_api(messages, api_key, api_url, model_name)
@@ -94,7 +101,7 @@ def _call_deepseek_api(messages, api_key, api_url, model_name):
     return data['choices'][0]['message']['content']
 
 
-def _call_gemini_api_with_context(messages, api_key, model_name, conversation_id=None, files=None):
+def _call_gemini_api_with_context(messages, api_key, model_name, conversation_id=None, files=None, is_one_time_attachment=None):
     """
     Call Google Gemini API with context management (Chat Session).
     支持上下文记忆和文件上传的 Gemini API 调用。
@@ -103,7 +110,7 @@ def _call_gemini_api_with_context(messages, api_key, model_name, conversation_id
     1. 检查并恢复 Chat Session 历史（如果未初始化）
     2. Chat Session 内部自动维护历史记录
     3. 只需发送最后一条用户消息
-    4. 如果有文件，使用智能上传策略（<20MB内嵌，≥20MB使用File API）
+    4. 支持两种文件模式：临时（内嵌）和持久（File API）
     5. 历史同步由 Chat Session 管理，无需手动处理
     
     Args:
@@ -111,7 +118,8 @@ def _call_gemini_api_with_context(messages, api_key, model_name, conversation_id
         api_key: API 密钥（从环境变量获取）
         model_name: 模型名称
         conversation_id: 对话ID，用于管理上下文
-        files: 文件路径列表（可选）
+        files: 文件信息（字典列表或路径列表）
+        is_one_time_attachment: 文件模式标记（仅在 files 为路径列表时使用）
     """
     if not GENAI_AVAILABLE:
         return "Error: Google GenAI SDK is not installed. Please run 'pip install google-generativeai'"
@@ -176,15 +184,25 @@ def _call_gemini_api_with_context(messages, api_key, model_name, conversation_id
         # 判断是否有文件
         if files and len(files) > 0:
             # 【带文件】发送消息
+            # 文件现在是字典列表，包含 path, mode, file_id
             print(f"📤 发送消息到 Chat Session（含 {len(files)} 个文件）")
-            print(f"📎 文件列表: {files}")
+            
+            # 分离临时文件和持久文件
+            temporary_files = [f['path'] for f in files if f.get('mode') == 'temporary']
+            persistent_file_ids = [f['file_id'] for f in files if f.get('mode') == 'persistent' and f.get('file_id')]
+            
+            print(f"� 临时文件: {len(temporary_files)} 个")
+            print(f"🔗 持久文件: {len(persistent_file_ids)} 个")
+            
             for f in files:
-                print(f"  - {f} (存在: {os.path.exists(f)})")
+                mode_icon = '📄' if f.get('mode') == 'temporary' else '🔗'
+                print(f"  {mode_icon} {f['path']} (mode={f.get('mode')})")
             
             response_text = context_manager.send_message_with_files(
                 conversation_id=conversation_id,
                 message=last_user_message,
-                file_paths=files,
+                file_paths=temporary_files,  # 临时文件路径
+                persistent_file_ids=persistent_file_ids,  # 持久文件ID
                 model=model_to_use
             )
         else:
@@ -195,7 +213,7 @@ def _call_gemini_api_with_context(messages, api_key, model_name, conversation_id
             # 3. 发送 [内部历史 + 本次消息] 给模型
             # 4. 将模型回复也添加到内部历史
             print(f"📤 发送消息到 Chat Session: {last_user_message[:50]}...")
-            response_text = context_manager.send_message(
+            response_text = context_manager.send_text_message(
                 conversation_id=conversation_id,
                 message=last_user_message,
                 model=model_to_use
@@ -348,19 +366,22 @@ def get_deepseek_reply(messages):
     """Backward compatibility function."""
     return get_ai_reply(messages)
 
-def get_topic_from_reply(user_question):
+def get_topic_from_reply(ai_response):
     """
-    通过一个特殊的API请求，从用户问题中提取一个简短的对话主题。
+    通过一个特殊的API请求，从AI回复内容中提取一个简短的对话主题。
+    特别适用于包含图片分析、文档分析等AI生成内容的情况。
     """
     messages = [
-        {"role": "system", "content": "你是一位专业的标题生成助手。请根据用户的问题，用5个字以内，为该问题提炼一个简洁、清晰的标题。只需要返回标题，不要有任何额外的话。如果问题无法提炼，请返回'新对话'。"},
-        {"role": "user", "content": user_question}
+        {"role": "system", "content": "你是一位专业的标题生成助手。请根据AI的回复内容，用5个字以内，为这次对话提炼一个简洁、清晰的标题。重点关注AI分析的主要内容（如图片中的主体、文档主题等）。只需要返回标题，不要有任何额外的话。如果无法提炼，请返回'新对话'。"},
+        {"role": "user", "content": f"请为以下AI回复生成标题：\n\n{ai_response}"}
     ]
     
     try:
         reply = get_ai_reply(messages)
         # 确保返回的标题不包含多余的标点或换行
         clean_title = reply.strip().replace('"', '').replace("'", "").replace("。", "")
+        
+        print(f"📋 AI分析内容生成标题: {clean_title}")
         return clean_title if clean_title else "新对话"
     except Exception as e:
         print(f"获取对话主题失败: {e}")

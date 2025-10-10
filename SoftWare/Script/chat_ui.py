@@ -26,7 +26,7 @@ BACKGROUND_PATH = resource_path(os.path.join("SoftWare", "Image", "Backgroud", "
 
 class ChatWindow(QWidget):
     """主聊天窗口"""
-    send_message_signal = pyqtSignal(str)
+    send_message_signal = pyqtSignal(str, list)  # 修复：消息内容, 文件列表
     prompt_signal = pyqtSignal(str)
     clear_history_signal = pyqtSignal()
     cancel_request_signal = pyqtSignal()  # 新增：取消请求信号
