@@ -372,17 +372,54 @@ def get_topic_from_reply(ai_response):
     特别适用于包含图片分析、文档分析等AI生成内容的情况。
     """
     messages = [
-        {"role": "system", "content": "你是一位专业的标题生成助手。请根据AI的回复内容，用5个字以内，为这次对话提炼一个简洁、清晰的标题。重点关注AI分析的主要内容（如图片中的主体、文档主题等）。只需要返回标题，不要有任何额外的话。如果无法提炼，请返回'新对话'。"},
-        {"role": "user", "content": f"请为以下AI回复生成标题：\n\n{ai_response}"}
+        {"role": "system", "content": "你是标题生成助手。根据AI回复内容生成3个标题，每个5字以内，用逗号分隔。示例格式：视频分析,内容解读,多媒体讨论。只返回标题，不要理由、不要换行、不要序号、不要其他任何内容。"},
+        {"role": "user", "content": f"AI回复内容：{ai_response[:200]}"}  # 只取前200字避免过长
     ]
     
     try:
         reply = get_ai_reply(messages)
-        # 确保返回的标题不包含多余的标点或换行
-        clean_title = reply.strip().replace('"', '').replace("'", "").replace("。", "")
+        # 清理返回内容
+        clean_reply = reply.strip().replace('\n', ' ').replace('\r', '')
         
-        print(f"📋 AI分析内容生成标题: {clean_title}")
-        return clean_title if clean_title else "新对话"
+        # 解析标题（按逗号或顿号分隔）
+        titles = []
+        for separator in [',', '，', '、']:
+            if separator in clean_reply:
+                titles = [t.strip() for t in clean_reply.split(separator)]
+                break
+        
+        # 如果没有分隔符，直接使用整个回复
+        if not titles:
+            titles = [clean_reply]
+        
+        # 过滤和清理标题
+        valid_titles = []
+        for t in titles:
+            # 移除序号、标点、引号等
+            t = t.replace('"', '').replace("'", '').replace("。", '').replace('*', '')
+            t = t.replace('**', '').replace('《', '').replace('》', '')
+            # 移除数字序号
+            import re
+            t = re.sub(r'^\d+[\.\、]?\s*', '', t)
+            t = t.strip()
+            
+            # 只保留5个字以内的标题
+            if t and len(t) <= 5:
+                valid_titles.append(t)
+        
+        if valid_titles:
+            # 随机选择一个标题
+            import random
+            selected_title = random.choice(valid_titles)
+            print(f"[OK] 对话标题: {selected_title}")
+            return selected_title
+        else:
+            # 如果没有有效标题，从AI回复中提取关键词
+            words = ai_response[:20].split()
+            fallback = words[0] if words else "新对话"
+            print(f"[OK] 对话标题: {fallback}")
+            return fallback[:5]  # 最多5个字
+            
     except Exception as e:
-        print(f"获取对话主题失败: {e}")
+        print(f"[ERROR] 获取对话主题失败: {e}")
         return "新对话"

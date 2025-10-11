@@ -189,7 +189,7 @@ class StyleCache:
         }
         
         self._prerendered = True
-        print("✅ 样式预渲染完成")
+        print("[OK] 样式预渲染完成")
     
     def get_style(self, theme: str, component: str) -> str:
         """获取缓存的样式"""
@@ -304,10 +304,10 @@ class EnhancedThemeManager(QObject):
             # 保存设置
             self.save_settings()
             
-            print(f"✅ 主题UI更新完成: {theme_name}")
+            print(f"[OK] 主题UI更新完成: {theme_name}")
             
         except Exception as e:
-            print(f"❌ 主题UI更新失败: {e}")
+            print(f"[ERROR] 主题UI更新失败: {e}")
             
     def _apply_cached_styles(self, theme_name: str):
         """应用缓存的样式"""
@@ -369,9 +369,9 @@ class EnhancedThemeManager(QObject):
         self.theme_change_completed.emit()
         
         if success:
-            print("✅ 主题切换完成")
+            print("[OK] 主题切换完成")
         else:
-            print("❌ 主题切换失败")
+            print("[ERROR] 主题切换失败")
     
     # 保持原有接口兼容性
     def enable_dark_mode(self, enabled=True):
@@ -419,7 +419,7 @@ class EnhancedThemeManager(QObject):
             else:
                 print("☀️ 已切换到浅色模式")
         else:
-            print("✅ 主题状态无需更改")
+            print("[OK] 主题状态无需更改")
     
     def set_custom_background(self, path):
         """设置自定义背景"""

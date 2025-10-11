@@ -65,11 +65,11 @@ class ChatWindow(QWidget):
         try:
             from enhanced_theme_manager import EnhancedThemeManager
             self.theme_manager = EnhancedThemeManager(self)
-            print("✅ 使用增强主题管理器")
+            print("[OK] 使用增强主题管理器")
         except ImportError:
             from theme_manager import ThemeManager
             self.theme_manager = ThemeManager(self)
-            print("⚠️ 使用标准主题管理器")
+            print("[WARNING] 使用标准主题管理器")
         
         self.theme_manager.set_main_window(self)
         

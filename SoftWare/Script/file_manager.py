@@ -172,8 +172,15 @@ class FileManager:
             # 尝试重命名txt文件
             self._rename_conversation_file(conv_id, old_title, new_title)
     
-    def add_message(self, conv_id, role, content):
-        """添加消息到对话"""
+    def add_message(self, conv_id, role, content, file_paths=None):
+        """添加消息到对话
+        
+        Args:
+            conv_id: 对话ID
+            role: 角色('user' 或 'assistant')
+            content: 消息内容
+            file_paths: 附件文件路径列表（可选）
+        """
         # 获取对话信息用于确定文件路径
         metadata = self._load_metadata()
         title = metadata["conversations"].get(conv_id, {}).get("title", "新对话")
@@ -191,7 +198,15 @@ class FileManager:
         try:
             with open(file_path, 'a', encoding='utf-8') as f:
                 f.write(f"[{timestamp}] {role_name}:\n")
-                f.write(f"{content}\n\n")
+                f.write(f"{content}\n")
+                
+                # 【新增】如果有附件，添加附件信息
+                if file_paths and len(file_paths) > 0:
+                    f.write(f"[附件]:\n")
+                    for fp in file_paths:
+                        f.write(f"  - {fp}\n")
+                
+                f.write("\n")
         except Exception as e:
             print(f"添加消息失败: {e}")
     
@@ -200,37 +215,90 @@ class FileManager:
         # 获取对话信息用于确定文件路径
         metadata = self._load_metadata()
         title = metadata["conversations"].get(conv_id, {}).get("title", "新对话")
-        file_path = self._get_conversation_file_path(conv_id, title)
+        conversation_path = self._get_conversation_file_path(conv_id, title)
         
-        if not os.path.exists(file_path):
+        if not os.path.exists(conversation_path):
             return []
         
         messages = []
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(conversation_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
             
             current_message = None
             content_lines = []
+            file_paths = []  # 【新增】当前消息的附件路径列表
+            in_file_section = False  # 【新增】标记是否在附件部分
             
             for line in lines:
                 line = line.rstrip('\n')
                 
-                # 跳过标题行和空行
-                if line.startswith('#') or not line.strip():
+                # 【修复Bug】跳过标题行、空行以及任何不属于消息格式的行
+                # 标题行格式：# 开头
+                # 消息行格式：[timestamp] 角色名:
+                if line.startswith('#'):
+                    # 明确跳过标题行，不保存任何消息
                     if current_message and content_lines:
                         current_message['content'] = '\n'.join(content_lines).strip()
-                        messages.append(current_message)
+                        # 【新增】添加附件信息
+                        if file_paths:
+                            current_message['files'] = file_paths.copy()
+                        # 只保存非空消息
+                        if current_message['content']:
+                            messages.append(current_message)
                         current_message = None
                         content_lines = []
+                        file_paths = []
+                        in_file_section = False
                     continue
                 
-                # 检查是否是新消息的开始
-                if line.startswith('[') and '] ' in line and ('用户:' in line or 'AI助手:' in line):
+                # 跳过空行
+                if not line.strip():
+                    if current_message and content_lines:
+                        current_message['content'] = '\n'.join(content_lines).strip()
+                        # 【新增】添加附件信息
+                        if file_paths:
+                            current_message['files'] = file_paths.copy()
+                        # 只保存非空消息
+                        if current_message['content']:
+                            messages.append(current_message)
+                        current_message = None
+                        content_lines = []
+                        file_paths = []
+                        in_file_section = False
+                    continue
+                
+                # 【新增】检查是否是附件部分的开始
+                if line == '[附件]:':
+                    in_file_section = True
+                    continue
+                
+                # 【新增】解析附件路径
+                if in_file_section and line.strip().startswith('- '):
+                    attachment_path = line.strip()[2:].strip()  # 移除 "- " 前缀
+                    file_paths.append(attachment_path)
+                    continue
+                
+                # 【关键修复】检查是否是合法的新消息开始（必须同时满足所有条件）
+                # 格式：[timestamp] 用户: 或 [timestamp] AI助手:
+                is_message_start = (
+                    line.startswith('[') and 
+                    '] ' in line and 
+                    ('用户:' in line or 'AI助手:' in line) and
+                    # 确保timestamp格式正确（包含日期时间）
+                    len(line.split(']')[0]) > 10  # [2024-01-01 12:00:00] 长度大于10
+                )
+                
+                if is_message_start:
                     # 保存上一条消息
                     if current_message and content_lines:
                         current_message['content'] = '\n'.join(content_lines).strip()
-                        messages.append(current_message)
+                        # 【新增】添加附件信息
+                        if file_paths:
+                            current_message['files'] = file_paths.copy()
+                        # 只保存非空消息
+                        if current_message['content']:
+                            messages.append(current_message)
                     
                     # 开始新消息
                     if '用户:' in line:
@@ -240,20 +308,31 @@ class FileManager:
                     
                     current_message = {'role': role}
                     content_lines = []
+                    file_paths = []
+                    in_file_section = False
                 else:
-                    # 消息内容行
-                    if current_message:
+                    # 消息内容行（只有在已经有active message时才添加，且不在附件部分）
+                    if current_message and not in_file_section:
                         content_lines.append(line)
             
             # 处理最后一条消息
             if current_message and content_lines:
                 current_message['content'] = '\n'.join(content_lines).strip()
-                messages.append(current_message)
+                # 【新增】添加附件信息
+                if file_paths:
+                    current_message['files'] = file_paths.copy()
+                # 只保存非空消息
+                if current_message['content']:
+                    messages.append(current_message)
                 
         except Exception as e:
-            print(f"读取对话历史失败: {e}")
+            print(f"[ERROR] 读取对话历史失败: {e}")
+            import traceback
+            traceback.print_exc()
             return []
         
+        # 【调试输出】打印解析的消息数量
+        print(f"[DEBUG] 从文件 {os.path.basename(conversation_path)} 解析了 {len(messages)} 条消息")
         return messages
     
     def get_all_conversations(self):

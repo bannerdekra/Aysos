@@ -217,11 +217,13 @@ class ChatManager:
         # 清空当前显示
         self.chat_window.chat_area.clear_chat_history_display()
         
-        # 添加历史消息
+        # 添加历史消息（包含附件信息）
         for message in messages:
+            file_paths = message.get('files', None)  # 获取附件路径（如果有）
             self.chat_window.chat_area.add_history_bubble(
                 message['role'], 
-                message['content']
+                message['content'],
+                file_paths  # 传递附件路径
             )
     
     def _sync_gemini_context(self, conversation_id, messages):
@@ -241,19 +243,19 @@ class ChatManager:
             # 获取上下文管理器
             context_manager = get_gemini_context_manager()
             if not context_manager:
-                print("⚠️ Gemini 上下文管理器不可用，跳过历史同步")
+                print("[WARNING] Gemini 上下文管理器不可用，跳过历史同步")
                 return
             
             # 恢复历史记录到 Chat Session
             print(f"🔄 同步 Gemini 上下文历史到对话 {conversation_id}")
             context_manager.restore_chat_history(conversation_id, messages)
-            print(f"✅ Gemini 上下文历史同步完成")
+            print(f"[OK] Gemini 上下文历史同步完成")
             
         except ImportError:
             # Gemini 上下文管理器未安装
             pass
         except Exception as e:
-            print(f"⚠️ Gemini 上下文历史同步失败: {str(e)}")
+            print(f"[WARNING] Gemini 上下文历史同步失败: {str(e)}")
 
     def search_text_globally(self, search_text):
         """全局搜索所有对话中的文本"""
@@ -402,11 +404,21 @@ class ChatManager:
         if self.is_first_message:
             self.first_user_message = user_input
         
-        # 保存用户消息到存储
-        self.storage.add_message(self.current_conversation_id, 'user', user_input)
+        # 【修复Bug2】保存用户消息到存储时，将附件信息一起保存
+        # 提取文件路径列表（用于持久化）
+        file_paths = []
+        if files:
+            for file_info in files:
+                if isinstance(file_info, dict) and 'path' in file_info:
+                    file_paths.append(file_info['path'])
+                elif isinstance(file_info, str):
+                    file_paths.append(file_info)
         
-        # 添加用户消息到界面
-        self.chat_window.chat_area.add_history_bubble('user', user_input)
+        # 保存消息（包含附件路径信息）
+        self.storage.add_message(self.current_conversation_id, 'user', user_input, file_paths)
+        
+        # 添加用户消息到界面（附带附件标签）
+        self.chat_window.chat_area.add_history_bubble('user', user_input, file_paths)
         
         # 添加思考气泡
         thinking_bubble = self.chat_window.chat_area.add_thinking_bubble()
@@ -598,7 +610,7 @@ if __name__ == '__main__':
     chat_window.set_chat_manager(chat_manager)
     
     print("🎯 Agent Chat 启动完成")
-    print("✅ 已集成增强主题管理器和响应式UI组件")
+    print("[OK] 已集成增强主题管理器和响应式UI组件")
     print("⚡ 按钮响应已优化，支持预渲染和异步更新")
     print("🔧 支持快速切换深色/浅色模式")
     

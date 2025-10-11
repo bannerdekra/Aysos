@@ -207,7 +207,7 @@ class EnhancedSettingsDialog:
             self.dialog.dark_mode_switch = new_switch
             old_switch.deleteLater()
             
-            print("✅ 深色模式开关已增强")
+            print("[OK] 深色模式开关已增强")
         
         # 替换自动模式开关
         if hasattr(self.dialog, 'auto_mode_switch'):
@@ -236,7 +236,7 @@ class EnhancedSettingsDialog:
             self.dialog.auto_mode_switch = new_switch
             old_switch.deleteLater()
             
-            print("✅ 自动模式开关已增强")
+            print("[OK] 自动模式开关已增强")
 
 
 def enhance_settings_dialog(dialog):

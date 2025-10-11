@@ -144,9 +144,10 @@ class StorageConfig:
             # 获取文件中的历史消息
             messages = self.file_manager.get_history(conv_id)
             
-            # 将消息添加到数据库
+            # 将消息添加到数据库（包含附件信息）
             for message in messages:
-                self.db_manager.add_message(new_conv_id, message['role'], message['content'])
+                file_paths = message.get('files', None)
+                self.db_manager.add_message(new_conv_id, message['role'], message['content'], file_paths)
             
             print(f"迁移对话: {title} ({len(messages)}条消息)")
         
@@ -170,9 +171,10 @@ class StorageConfig:
             # 获取数据库中的历史消息
             messages = self.db_manager.get_history(conv_id)
             
-            # 将消息添加到文件
+            # 将消息添加到文件（包含附件信息）
             for message in messages:
-                self.file_manager.add_message(new_conv_id, message['role'], message['content'])
+                file_paths = message.get('files', None)
+                self.file_manager.add_message(new_conv_id, message['role'], message['content'], file_paths)
             
             print(f"迁移对话: {title} ({len(messages)}条消息)")
         
@@ -198,9 +200,16 @@ class StorageConfig:
         """更新对话标题"""
         return self.get_manager().update_conversation_title(conv_id, new_title)
     
-    def add_message(self, conv_id, role, content):
-        """添加消息"""
-        return self.get_manager().add_message(conv_id, role, content)
+    def add_message(self, conv_id, role, content, file_paths=None):
+        """添加消息
+        
+        Args:
+            conv_id: 对话ID
+            role: 角色('user' 或 'assistant')
+            content: 消息内容
+            file_paths: 附件文件路径列表（可选）
+        """
+        return self.get_manager().add_message(conv_id, role, content, file_paths)
     
     def get_history(self, conv_id):
         """获取对话历史"""

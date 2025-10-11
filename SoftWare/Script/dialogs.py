@@ -1207,7 +1207,7 @@ class SettingsDialog(QDialog):
         print(f"🔘 深色模式状态变化: {checked}, theme_manager: {self.theme_manager}")
         
         if not self.theme_manager:
-            print("❌ 警告: theme_manager 为 None")
+            print("[ERROR] 警告: theme_manager 为 None")
             return
         
         # 使用增强的主题管理器进行快速切换
@@ -1230,7 +1230,7 @@ class SettingsDialog(QDialog):
             print("⏹️ 正在禁用自动模式...")
         
         if not self.theme_manager:
-            print("❌ 警告: theme_manager 为 None")
+            print("[ERROR] 警告: theme_manager 为 None")
             return
             
         # 异步设置自动模式，避免阻塞UI

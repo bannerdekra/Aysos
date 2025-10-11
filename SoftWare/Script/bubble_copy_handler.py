@@ -152,7 +152,9 @@ class CopyButtonManager:
     
     def clear_all_buttons(self):
         """清除所有按钮"""
-        print(f"清除所有功能按钮，共 {len(self._current_buttons)} 个")
+        count = len(self._current_buttons)
+        if count:
+            print(f"[DEBUG] 回收聊天功能按钮 {count} 个（切换对话或刷新时自动清理）")
         for button in self._current_buttons:
             if button:
                 try:

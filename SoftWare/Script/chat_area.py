@@ -1,6 +1,7 @@
 import os
 import sys
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QApplication, QSpacerItem
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, 
+                              QSizePolicy, QApplication, QSpacerItem, QPushButton, QMessageBox)
 from PyQt6.QtGui import QMovie, QFont, QFontMetrics, QTextDocument
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QTimer
 from bubble_copy_handler import create_copyable_bubble_class, CopyButtonManager
@@ -28,6 +29,41 @@ class BubbleLabel(QLabel):
 
 # 创建带复制功能的气泡类
 CopyableBubbleLabel = create_copyable_bubble_class(BubbleLabel)
+
+class ClickableFileChip(QPushButton):
+    """可点击的文件引用标签，显示在用户气泡下方"""
+    def __init__(self, file_name, file_path, parent=None):
+        super().__init__(f"📎 {file_name}", parent)
+        self.file_name = file_name
+        self.file_path = file_path
+        self.setToolTip(f"点击预览文件\n路径: {file_path}")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clicked.connect(self.on_click)
+    
+    def on_click(self):
+        """点击文件标签时的处理"""
+        # 检查文件是否存在
+        if not os.path.exists(self.file_path):
+            QMessageBox.warning(
+                self,
+                "文件不存在",
+                f"文件已不在原路径:\n{self.file_path}\n\n文件可能已被移动或删除。",
+                QMessageBox.StandardButton.Ok
+            )
+            return
+        
+        # 文件存在，打开预览
+        try:
+            from dialogs import FilePreviewDialog
+            preview = FilePreviewDialog(self.file_path, self.file_name, parent=self.window())
+            preview.exec()
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "预览失败",
+                f"无法预览文件:\n{str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
 class ChatArea(QWidget):
     """聊天区域组件 - 双列布局"""
@@ -272,17 +308,61 @@ class ChatArea(QWidget):
         row_layout.addItem(left_spacer)
         row_layout.addWidget(user_bubble)
 
-        # 新增：显示临时文件名（如有）
-        if hasattr(self.parent(), 'input_bar'):
-            temp_files = self.parent().input_bar.get_temporary_files() if hasattr(self.parent().input_bar, 'get_temporary_files') else []
-            if temp_files:
-                for file_path in temp_files:
-                    file_name = os.path.basename(file_path)
-                    file_label = QLabel(f"📄 {file_name}", parent=message_row)
-                    file_label.setStyleSheet("color: #555; font-size: 13px; margin-left: 24px; margin-bottom: 2px;")
-                    row_layout.addWidget(file_label)
-
         self.agent_layout.addWidget(message_row)
+        
+        # 新增：在气泡下方显示临时文件引用
+        temp_files = []
+        try:
+            # 获取父窗口的 input_bar
+            parent_widget = self.parent()
+            if parent_widget and hasattr(parent_widget, 'input_bar'):
+                input_bar = parent_widget.input_bar
+                if hasattr(input_bar, 'get_temporary_files'):
+                    temp_files = input_bar.get_temporary_files()
+                    print(f"[DEBUG] 获取到临时文件: {temp_files}")  # 调试信息
+        except Exception as e:
+            print(f"[ERROR] 获取临时文件失败: {e}")
+        
+        if temp_files:
+            # 创建文件引用容器
+            file_ref_container = QWidget()
+            file_ref_layout = QHBoxLayout(file_ref_container)
+            file_ref_layout.setContentsMargins(0, 2, 8, 4)  # 紧贴气泡
+            file_ref_layout.setSpacing(6)
+            
+            # 左侧弹簧，使文件标签右对齐（与用户气泡对齐）
+            file_ref_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+            
+            for file_path in temp_files:
+                file_name = os.path.basename(file_path)
+                # 截断长文件名
+                if len(file_name) > 15:
+                    display_name = file_name[:12] + "..."
+                else:
+                    display_name = file_name
+                    
+                # 创建可点击的文件标签（小标签，紧贴气泡）
+                file_chip = ClickableFileChip(display_name, file_path, parent=file_ref_container)
+                file_chip.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(100, 100, 100, 0.2);
+                        border: 1px solid rgba(100, 100, 100, 0.35);
+                        border-radius: 8px;
+                        color: #777;
+                        font-size: 11px;
+                        padding: 2px 8px;
+                        text-align: left;
+                    }
+                    QPushButton:hover {
+                        background: rgba(100, 100, 100, 0.3);
+                        border-color: rgba(100, 100, 100, 0.5);
+                        color: #555;
+                    }
+                """)
+                file_ref_layout.addWidget(file_chip)
+            
+            self.agent_layout.addWidget(file_ref_container)
+
         spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.agent_layout.addItem(spacer_item)
         message_row.adjustSize()
@@ -413,8 +493,28 @@ class ChatArea(QWidget):
         self._scroll_to_bottom_precisely()
         self.current_thinking_bubble = None
 
-    def add_history_bubble(self, role, content):
-        """添加历史记录气泡 - 使用优化的布局系统：内容包裹优先，最大宽度限制"""
+    def add_history_bubble(self, role, content, file_paths=None):
+        """添加历史记录气泡 - 使用优化的布局系统：内容包裹优先，最大宽度限制
+        
+        Args:
+            role: 消息角色 ('user' 或 'assistant')
+            content: 消息内容
+            file_paths: 附件文件路径列表（可选）
+        """
+        # 标准化附件路径列表，兼容字符串或字典结构
+        normalized_paths = []
+        if file_paths:
+            for file_entry in file_paths:
+                if isinstance(file_entry, dict):
+                    candidate = file_entry.get('path') or file_entry.get('local_path') or file_entry.get('uri')
+                else:
+                    candidate = str(file_entry)
+
+                if candidate:
+                    normalized_paths.append(candidate)
+
+        file_paths = normalized_paths
+
         bubble_index = len(self.message_bubbles)
         
         # 创建消息行容器
@@ -483,11 +583,53 @@ class ChatArea(QWidget):
             'bubble': bubble,
             'role': role,
             'content': content,
-            'container': message_row
+            'container': message_row,
+            'files': file_paths
         })
         
         # 添加消息行到主布局
         self.agent_layout.addWidget(message_row)
+        
+        # 【修复Bug2】如果是用户消息且有附件，在气泡下方添加文件引用标签
+        if role == 'user' and file_paths:
+            # 创建文件引用容器
+            file_ref_container = QWidget()
+            file_ref_layout = QHBoxLayout(file_ref_container)
+            file_ref_layout.setContentsMargins(0, 2, 8, 4)  # 紧贴气泡
+            file_ref_layout.setSpacing(6)
+            
+            # 左侧弹簧，使文件标签右对齐（与用户气泡对齐）
+            file_ref_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+            
+            for file_path in file_paths:
+                file_name = os.path.basename(file_path)
+                # 截断长文件名
+                if len(file_name) > 15:
+                    display_name = file_name[:12] + "..."
+                else:
+                    display_name = file_name
+                    
+                # 创建可点击的文件标签（小标签，紧贴气泡）
+                file_chip = ClickableFileChip(display_name, file_path, parent=file_ref_container)
+                file_chip.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(100, 100, 100, 0.2);
+                        border: 1px solid rgba(100, 100, 100, 0.35);
+                        border-radius: 8px;
+                        color: #777;
+                        font-size: 11px;
+                        padding: 2px 8px;
+                        text-align: left;
+                    }
+                    QPushButton:hover {
+                        background: rgba(100, 100, 100, 0.3);
+                        border-color: rgba(100, 100, 100, 0.5);
+                        color: #555;
+                    }
+                """)
+                file_ref_layout.addWidget(file_chip)
+            
+            self.agent_layout.addWidget(file_ref_container)
         
         # 添加消息间间距
         spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)

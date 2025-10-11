@@ -71,7 +71,7 @@ class ThemeManager(QObject):
             # 递归更新所有子组件
             self._update_all_children(self.main_window)
             
-            print("✅ UI刷新完成")
+            print("[OK] UI刷新完成")
     
     def _update_all_children(self, widget):
         """递归更新所有子组件"""
@@ -120,7 +120,7 @@ class ThemeManager(QObject):
             else:
                 print("☀️ 已切换到浅色模式")
         else:
-            print("✅ 主题状态无需更改")
+            print("[OK] 主题状态无需更改")
     
     def set_custom_background(self, path):
         """设置自定义背景"""
@@ -140,7 +140,7 @@ class ThemeManager(QObject):
         else:
             self.apply_light_theme()
         
-        print("✅ 主题应用完成")
+        print("[OK] 主题应用完成")
             
     def apply_dark_theme(self):
         """应用深色主题"""

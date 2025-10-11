@@ -59,6 +59,14 @@ class DatabaseManager:
                 ALTER TABLE messages ADD CONSTRAINT FK_messages_conversations FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE;
             END
         ''')
+        
+        # 【新增】添加附件信息列（存储JSON格式的文件路径列表）
+        self.cursor.execute('''
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'files' AND Object_ID = Object_ID(N'messages'))
+            BEGIN
+                ALTER TABLE messages ADD files NVARCHAR(MAX);
+            END
+        ''')
         self.conn.commit()
 
     def create_new_conversation(self, title="新对话"):
@@ -86,15 +94,48 @@ class DatabaseManager:
         result = self.cursor.fetchone()
         return result if result else None
 
-    def add_message(self, conversation_id, role, content):
-        self.cursor.execute('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)', (conversation_id, role, content))
+    def add_message(self, conversation_id, role, content, file_paths=None):
+        """添加消息到数据库
+        
+        Args:
+            conversation_id: 对话ID
+            role: 角色('user' 或 'assistant')
+            content: 消息内容
+            file_paths: 附件文件路径列表（可选）
+        """
+        import json
+        
+        # 将文件路径列表转换为JSON字符串
+        files_json = json.dumps(file_paths, ensure_ascii=False) if file_paths else None
+        
+        self.cursor.execute(
+            'INSERT INTO messages (conversation_id, role, content, files) VALUES (?, ?, ?, ?)', 
+            (conversation_id, role, content, files_json)
+        )
         self.conn.commit()
 
     def get_history(self, conversation_id):
         if not conversation_id:
             return []
-        self.cursor.execute('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id ASC', (conversation_id,))
-        return [{'role': row.role, 'content': row.content} for row in self.cursor.fetchall()]
+        import json
+        
+        self.cursor.execute(
+            'SELECT role, content, files FROM messages WHERE conversation_id = ? ORDER BY id ASC', 
+            (conversation_id,)
+        )
+        
+        messages = []
+        for row in self.cursor.fetchall():
+            message = {'role': row.role, 'content': row.content}
+            # 【新增】解析附件信息
+            if row.files:
+                try:
+                    message['files'] = json.loads(row.files)
+                except:
+                    pass
+            messages.append(message)
+        
+        return messages
 
     def delete_messages_from_index(self, conversation_id, start_index):
         """删除从指定索引开始的所有消息"""

@@ -19,9 +19,9 @@ try:
     from google import genai
     from google.genai.types import Content, Part
     GENAI_AVAILABLE = True
-    print("✅ Gemini 上下文管理器：Google GenAI SDK 已加载")
+    print("[OK] Gemini Context Manager: Google GenAI SDK loaded")
 except ImportError:
-    print("❌ Gemini 上下文管理器：Google GenAI SDK 未安装")
+    print("[ERROR] Gemini Context Manager: Google GenAI SDK not installed")
     GENAI_AVAILABLE = False
 
 # --- 允许的文件MIME类型定义 ---
@@ -90,7 +90,7 @@ class GeminiContextManager:
         try:
             # 在无代理环境下创建客户端（避免 gRPC 认证问题）
             self.client = genai.Client(api_key=api_key)
-            print("✅ Gemini 客户端创建成功（代理已隔离）")
+            print("[OK] Gemini client created successfully (proxy isolated)")
         finally:
             # 恢复代理环境变量，确保其他模块（如 requests）能继续使用代理
             for var, value in saved_proxies.items():
@@ -106,7 +106,7 @@ class GeminiContextManager:
         # 系统指令（可选）
         self.system_instruction: Optional[str] = None
         
-        print("✅ Gemini 上下文管理器初始化成功")
+        print("[OK] Gemini Context Manager initialized successfully")
     
     def set_system_instruction(self, instruction: str):
         """
@@ -127,7 +127,7 @@ class GeminiContextManager:
             model: 使用的模型名称
         """
         if conversation_id in self.chat_sessions:
-            print(f"⚠️ 对话 {conversation_id} 的 Chat Session 已存在")
+            print(f"[WARNING] Chat Session already exists for conversation {conversation_id}")
             return
         
         # 准备配置
@@ -147,9 +147,9 @@ class GeminiContextManager:
                 'model': model,
                 'created_at': datetime.now()
             }
-            print(f"✅ 为对话 {conversation_id} 创建了 Chat Session (模型: {model})")
+            print(f"[OK] Chat Session created for conversation {conversation_id} (model: {model})")
         except Exception as e:
-            print(f"❌ 创建 Chat Session 失败: {str(e)}")
+            print(f"[ERROR] Failed to create Chat Session: {str(e)}")
             raise
     
     def get_chat_session(self, conversation_id: str):
@@ -194,13 +194,13 @@ class GeminiContextManager:
             response = chat.send_message(message)
             
             if response and response.text:
-                print(f"✅ 收到回复: {response.text[:50]}...")
+                print(f"[OK] 收到回复: {response.text[:50]}...")
                 return response.text
             else:
                 return "Error: Empty response from Gemini."
         
         except Exception as e:
-            print(f"❌ 发送消息失败: {str(e)}")
+            print(f"[ERROR] 发送消息失败: {str(e)}")
             return f"Error: {str(e)}"
     
     ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp4', '.mov', '.mpeg', '.avi', '.webm'}
@@ -245,12 +245,12 @@ class GeminiContextManager:
             if file_paths:
                 for file_path in file_paths:
                     if not os.path.exists(file_path):
-                        print(f"⚠️ 文件不存在: {file_path}")
+                        print(f"[WARNING] 文件不存在: {file_path}")
                         continue
 
                     file_ext = os.path.splitext(file_path)[1].lower()
                     if file_ext not in self.ALLOWED_EXTENSIONS:
-                        print(f"⚠️ 不支持的文件扩展名: {file_path}")
+                        print(f"[WARNING] 不支持的文件扩展名: {file_path}")
                         continue
 
                     file_size = os.path.getsize(file_path)
@@ -259,12 +259,12 @@ class GeminiContextManager:
 
                     # --- 【核心过滤】只允许图片、PDF、视频 ---
                     if mime_type not in ALLOWED_MIME_TYPES:
-                        print(f"❌ 文件类型不受支持，跳过: {file_name} (MIME: {mime_type})")
+                        print(f"[ERROR] 文件类型不受支持，跳过: {file_name} (MIME: {mime_type})")
                         continue
 
                     # 检查文件大小硬限制
                     if file_size > MAX_FILE_SIZE:
-                        print(f"❌ 文件过大（> 2GB），无法上传: {file_name}")
+                        print(f"[ERROR] 文件过大（> 2GB），无法上传: {file_name}")
                         continue
 
                     # 判断是否为视频文件
@@ -274,14 +274,14 @@ class GeminiContextManager:
                     # --- 视频/大文件（>= 20MB）使用 File API ---
                     if is_video or is_large_file:
                         file_type_desc = "视频文件" if is_video else "大文件"
-                        print(f"📁 {file_type_desc}使用 File API: {file_name} ({file_size / (1024*1024):.2f} MB)")
+                        print(f"[FILE] {file_type_desc}使用 File API: {file_name} ({file_size / (1024*1024):.2f} MB)")
                         try:
                             uploaded_file = self._upload_file_to_gemini(file_path, mime_type)
                             content_parts.append(uploaded_file)
                             print(f"  → File API 上传成功 (文件将在服务器保留48小时)")
                             
                         except Exception as upload_error:
-                            print(f"❌ File API 上传失败: {file_path}, 错误: {upload_error}")
+                            print(f"[ERROR] File API 上传失败: {file_path}, 错误: {upload_error}")
                         continue
 
                     # --- 小文件（图片/PDF, < 20MB）内嵌上传 ---
@@ -297,7 +297,7 @@ class GeminiContextManager:
                         print(f"  → 内嵌上传成功 (MIME: {mime_type})")
                         
                     except Exception as upload_error:
-                        print(f"❌ 内嵌上传失败: {file_path}, 错误: {upload_error}")
+                        print(f"[ERROR] 内嵌上传失败: {file_path}, 错误: {upload_error}")
             
             # 2. 处理持久文件：使用 File API 引用
             if persistent_file_ids:
@@ -307,23 +307,23 @@ class GeminiContextManager:
                         if file_id in self.uploaded_files:
                             uploaded_file = self.uploaded_files[file_id]['file']
                             content_parts.append(uploaded_file)
-                            print(f"🔗 引用持久文件: {file_id} (已缓存)")
+                            print(f"[LINK] 引用持久文件: {file_id} (已缓存)")
                         else:
                             # 尝试使用 Part.from_uri 引用文件
                             file_uri = f"https://generativelanguage.googleapis.com/v1beta/{file_id}"
                             persistent_part = Part.from_uri(file_uri)
                             content_parts.append(persistent_part)
-                            print(f"🔗 引用持久文件: {file_id} (URI)")
+                            print(f"[LINK] 引用持久文件: {file_id} (URI)")
                             
                     except Exception as ref_error:
-                        print(f"❌ 引用持久文件失败: {file_id}, 错误: {ref_error}")
+                        print(f"[ERROR] 引用持久文件失败: {file_id}, 错误: {ref_error}")
             
             # 【核心修复】文本消息必须转换为 Part 对象
             # 即使没有文件，也要使用 Part 结构发送
             text_part = Part(text=message)
             
             if not content_parts:
-                print("⚠️ 没有成功处理任何文件，但仍使用 Part 结构发送文本")
+                print("[WARNING] 没有成功处理任何文件，但仍使用 Part 结构发送文本")
                 contents = [text_part]
             else:
                 # 构建完整的内容（文件 + 文本提示）
@@ -333,11 +333,11 @@ class GeminiContextManager:
             print(f"📤 发送消息（含 {len(content_parts)} 个文件）到对话 {conversation_id}")
             print(f"📝 内容顺序: [{len(content_parts)} 个文件 Part] + [1 个文本 Part]")
             
-            # 发送消息（直接传递列表，不使用命名参数）
+            # 发送消息（将 contents 列表作为单个参数传递，符合新版 SDK 要求）
             response = chat.send_message(contents)
             
             if response and response.text:
-                print(f"✅ 收到回复: {response.text[:50]}...")
+                print(f"[OK] 收到回复: {response.text[:50]}...")
                 
                 return response.text
             else:
@@ -346,7 +346,7 @@ class GeminiContextManager:
                 return f"Error: {error_msg}"
         
         except Exception as e:
-            print(f"❌ 发送包含文件的消息失败: {str(e)}")
+            print(f"[ERROR] 发送包含文件的消息失败: {str(e)}")
             import traceback
             traceback.print_exc()
            
@@ -354,17 +354,44 @@ class GeminiContextManager:
 
     def _upload_file_to_gemini(self, file_path: str, mime_type: str):
         """使用 Gemini File API 上传文件，并缓存返回的文件引用。"""
-        # 修复：使用正确的 genai.upload_file 方法
-        import google.generativeai as genai
-        uploaded_file = genai.upload_file(path=file_path, mime_type=mime_type)
-
+        import time
+        
+        # 使用与 Chat Session 同源的客户端上传文件，以便返回 google.genai.types.File 实例
+        # 注意：新 SDK 只支持 file 参数，不支持 display_name 和 mime_type
+        uploaded_file = self.client.files.upload(file=file_path)
+        
         file_id = uploaded_file.name if hasattr(uploaded_file, 'name') else str(len(self.uploaded_files))
+        print(f"  → 文件已上传至 Gemini，ID: {file_id}")
+        print(f"     初始状态: {uploaded_file.state}")
+        
+        # 对于视频文件，需要等待处理完成
+        if mime_type in VIDEO_MIME_TYPES:
+            print(f"  → 视频文件需要处理，等待 ACTIVE 状态...")
+            max_wait = 120  # 最多等待2分钟
+            waited = 0
+            
+            while uploaded_file.state.name == "PROCESSING" and waited < max_wait:
+                time.sleep(3)
+                waited += 3
+                uploaded_file = self.client.files.get(name=file_id)
+                if waited % 9 == 0:  # 每9秒打印一次
+                    print(f"     处理中... ({waited}秒)")
+            
+            if uploaded_file.state.name == "ACTIVE":
+                print(f"  → 视频处理完成，状态: {uploaded_file.state}")
+            elif uploaded_file.state.name == "FAILED":
+                print(f"  [ERROR] 视频处理失败: {uploaded_file.state}")
+                raise Exception(f"视频处理失败: {file_id}")
+            elif uploaded_file.state.name == "PROCESSING":
+                print(f"  [WARNING] 视频仍在处理中（已等待{waited}秒），尝试继续...")
+        
+        # 缓存文件引用
         self.uploaded_files[file_id] = {
             'file': uploaded_file,
             'path': file_path,
             'uploaded_at': datetime.now()
         }
-        print(f"  → 文件已上传至 Gemini，ID: {file_id}")
+        
         return uploaded_file
     
     def _get_mime_type(self, file_path: str) -> str:
@@ -431,7 +458,7 @@ class GeminiContextManager:
         """
         session_info = self.chat_sessions.get(conversation_id)
         if not session_info:
-            print(f"⚠️ 对话 {conversation_id} 的 Chat Session 不存在")
+            print(f"[WARNING] 对话 {conversation_id} 的 Chat Session 不存在")
             return []
         
         chat = session_info['chat']
@@ -441,14 +468,14 @@ class GeminiContextManager:
         try:
             # 使用 get_history() 方法获取历史记录
             if not hasattr(chat, 'get_history'):
-                print(f"⚠️ Chat Session 没有 get_history 方法")
+                print(f"[WARNING] Chat Session 没有 get_history 方法")
                 return []
             
             chat_history = chat.get_history()
             print(f"📚 Chat Session 历史记录数量: {len(chat_history) if chat_history else 0}")
             
             if not chat_history:
-                print(f"⚠️ Chat Session 历史记录为空")
+                print(f"[WARNING] Chat Session 历史记录为空")
                 return []
             
             history_data = []
@@ -491,11 +518,11 @@ class GeminiContextManager:
                 
                 history_data.append(history_item)
             
-            print(f"✅ 成功提取 {len(history_data)} 条历史记录")
+            print(f"[OK] 成功提取 {len(history_data)} 条历史记录")
             return history_data
             
         except Exception as e:
-            print(f"⚠️ 获取历史记录失败: {str(e)}")
+            print(f"[WARNING] 获取历史记录失败: {str(e)}")
             import traceback
             traceback.print_exc()
             return []
@@ -549,6 +576,17 @@ class GeminiContextManager:
                 # 2. 恢复文件 Part【核心修复】
                 if 'files' in msg and msg['files']:
                     for file_info in msg['files']:
+                        # 兼容字符串格式的附件（表示本地路径或说明）
+                        if isinstance(file_info, str):
+                            attachment_name = os.path.basename(file_info) or file_info
+                            parts.append(Part(text=f"[附件：{attachment_name}]"))
+                            continue
+
+                        if not isinstance(file_info, dict):
+                            # 未知格式，记录占位信息
+                            parts.append(Part(text="[附件信息格式不支持]"))
+                            continue
+
                         if file_info.get('type') == 'file_ref' and file_info.get('uri'):
                             # 使用 Part.from_uri 恢复 File API 引用
                             try:
@@ -557,13 +595,13 @@ class GeminiContextManager:
                                 parts.append(Part.from_uri(file_uri))
                                 print(f"   → 恢复文件引用: {file_uri}")
                             except Exception as e:
-                                print(f"   ⚠️ 恢复文件引用失败: {file_uri}, 错误: {str(e)}")
+                                print(f"   [WARNING] 恢复文件引用失败: {file_uri}, 错误: {str(e)}")
                                 # 文件可能已过期，添加说明文本
                                 parts.append(Part(text=f"[文件已过期: {file_info.get('mime_type', 'unknown')}]"))
                         
                         elif file_info.get('type') == 'inline_data':
                             # 内嵌数据无法恢复，添加占位符
-                            print(f"   ⚠️ 内嵌数据无法恢复: {file_info.get('mime_type', 'unknown')}")
+                            print(f"   [WARNING] 内嵌数据无法恢复: {file_info.get('mime_type', 'unknown')}")
                             parts.append(Part(text=f"[内嵌数据（无法恢复）: {file_info.get('mime_type', 'unknown')}]"))
                 
                 if not parts:
@@ -598,15 +636,15 @@ class GeminiContextManager:
                 'created_at': datetime.now()
             }
             
-            print(f"✅ 历史记录恢复完成（使用 Content 结构体）")
+            print(f"[OK] 历史记录恢复完成（使用 Content 结构体）")
             
         except Exception as e:
-            print(f"❌ 恢复历史记录失败: {str(e)}")
+            print(f"[ERROR] 恢复历史记录失败: {str(e)}")
             import traceback
             traceback.print_exc()
             
             # 降级：创建空的 Chat Session
-            print("⚠️ 降级：创建新的空 Chat Session")
+            print("[WARNING] 降级：创建新的空 Chat Session")
             self.create_chat_session(conversation_id, model)
     
     def cleanup_expired_files(self):
@@ -641,14 +679,14 @@ class GeminiContextManager:
             # 从缓存中移除
             if file_id in self.uploaded_files:
                 del self.uploaded_files[file_id]
-                print(f"✅ 文件已从服务器和缓存中删除: {file_id}")
+                print(f"[OK] 文件已从服务器和缓存中删除: {file_id}")
             else:
-                print(f"✅ 文件已从服务器删除: {file_id}")
+                print(f"[OK] 文件已从服务器删除: {file_id}")
             
             return True
             
         except Exception as e:
-            print(f"❌ 删除服务器文件失败: {file_id}, 错误: {str(e)}")
+            print(f"[ERROR] 删除服务器文件失败: {file_id}, 错误: {str(e)}")
             import traceback
             traceback.print_exc()
             return False
@@ -683,7 +721,7 @@ class GeminiContextManager:
                 if response.candidates[0].content.parts:
                     return response.candidates[0].content.parts[0].text
         except Exception as e:
-            print(f"⚠️ 提取响应文本失败: {e}")
+            print(f"[WARNING] 提取响应文本失败: {e}")
         return "AI 助手未返回有效内容。"
     
     def send_text_message(self, conversation_id: str, message: str, model: str = "gemini-2.5-flash") -> str:
@@ -711,7 +749,7 @@ class GeminiContextManager:
             response = chat.send_message(message)
             return self._extract_text_from_response(response)
         except Exception as e:
-            print(f"❌ 发送纯文本消息失败: {str(e)}")
+            print(f"[ERROR] 发送纯文本消息失败: {str(e)}")
             return f"Error: {str(e)}"
     
     def upload_file_for_context(self, conversation_id: str, message: str, 
@@ -730,13 +768,13 @@ class GeminiContextManager:
         Returns:
             模型的回复文本
         """
-        print(f"🔗 持久化模式：上传 {len(file_paths)} 个文件到服务器")
+        print(f"[LINK] 持久化模式：上传 {len(file_paths)} 个文件到服务器")
         
         # 使用现有的 send_message_with_files，但只使用 persistent 模式
         file_ids = []
         for file_path in file_paths:
             if not os.path.exists(file_path):
-                print(f"⚠️ 文件不存在: {file_path}")
+                print(f"[WARNING] 文件不存在: {file_path}")
                 continue
             
             try:
@@ -745,12 +783,12 @@ class GeminiContextManager:
                 
                 if hasattr(uploaded_file, 'name'):
                     file_ids.append(uploaded_file.name)
-                    print(f"✅ 文件上传成功: {uploaded_file.name}")
+                    print(f"[OK] 文件上传成功: {uploaded_file.name}")
             except Exception as e:
-                print(f"❌ 文件上传失败: {file_path}, 错误: {str(e)}")
+                print(f"[ERROR] 文件上传失败: {file_path}, 错误: {str(e)}")
         
         if not file_ids:
-            print("⚠️ 没有成功上传任何文件，发送纯文本消息")
+            print("[WARNING] 没有成功上传任何文件，发送纯文本消息")
             return self.send_text_message(conversation_id, message, model)
         
         # 使用 persistent_file_ids 发送消息
@@ -778,24 +816,24 @@ class GeminiContextManager:
         Returns:
             模型的回复文本
         """
-        print(f"📄 临时模式：内嵌 {len(file_paths)} 个文件")
+        print(f"[DOC] 临时模式：内嵌 {len(file_paths)} 个文件")
         
         # 检查文件大小限制
         valid_files = []
         for file_path in file_paths:
             if not os.path.exists(file_path):
-                print(f"⚠️ 文件不存在: {file_path}")
+                print(f"[WARNING] 文件不存在: {file_path}")
                 continue
             
             file_size = os.path.getsize(file_path)
             if file_size >= 20 * 1024 * 1024:
-                print(f"⚠️ 文件超过 20MB 限制，跳过: {file_path} ({file_size / (1024*1024):.2f} MB)")
+                print(f"[WARNING] 文件超过 20MB 限制，跳过: {file_path} ({file_size / (1024*1024):.2f} MB)")
                 continue
             
             valid_files.append(file_path)
         
         if not valid_files:
-            print("⚠️ 没有有效的文件，发送纯文本消息")
+            print("[WARNING] 没有有效的文件，发送纯文本消息")
             return self.send_text_message(conversation_id, message, model)
         
         # 使用 file_paths 发送消息（临时模式）
@@ -827,14 +865,14 @@ def get_gemini_context_manager() -> Optional[GeminiContextManager]:
             api_key = get_gemini_api_key()
             
             if not api_key:
-                print("❌ 无法获取 Gemini API 密钥，请检查环境变量或配置文件")
+                print("[ERROR] 无法获取 Gemini API 密钥，请检查环境变量或配置文件")
                 return None
             
             # 使用密钥初始化上下文管理器
             _gemini_context_manager = GeminiContextManager(api_key=api_key)
             
         except Exception as e:
-            print(f"❌ 初始化 Gemini 上下文管理器失败: {str(e)}")
+            print(f"[ERROR] 初始化 Gemini 上下文管理器失败: {str(e)}")
             import traceback
             traceback.print_exc()
             return None

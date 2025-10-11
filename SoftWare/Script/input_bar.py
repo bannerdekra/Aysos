@@ -32,26 +32,26 @@ class FileChip(QWidget):
     def init_ui(self):
         """初始化文件标签UI"""
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 2, 8, 2)
-        layout.setSpacing(5)
+        layout.setContentsMargins(10, 0, 10, 4)
+        layout.setSpacing(6)
         
-        # 模式图标
+        # 模式图标 - 放大
         mode_icon = "📄" if self.file_mode == 'temporary' else "🔗"
         self.mode_label = QLabel(mode_icon)
-        self.mode_label.setStyleSheet("color: white; font-size: 12px;")
+        self.mode_label.setStyleSheet("color: white; font-size: 14px;")
         
-        # 文件名标签
+        # 文件名标签 - 放大
         self.name_label = QLabel(self.display_name)
-        self.name_label.setStyleSheet("color: white; font-size: 12px;")
+        self.name_label.setStyleSheet("color: white; font-size: 14px; font-weight: 500;")
         
-        # 删除按钮
+        # 删除按钮 - 放大
         self.remove_btn = QPushButton("×")
-        self.remove_btn.setFixedSize(16, 16)
+        self.remove_btn.setFixedSize(20, 20)
         self.remove_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
                 color: white;
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: bold;
                 border: none;
                 padding: 0px;
@@ -87,8 +87,9 @@ class FileChip(QWidget):
         self.setStyleSheet(f"""
             QWidget {{
                 background: {color};
-                border-radius: 10px;
-                padding: 2px;
+                border-radius: 12px;
+                padding: 4px;
+                min-height: 28px;
             }}
         """)
     
@@ -105,8 +106,9 @@ class FileChip(QWidget):
             self.setStyleSheet(f"""
                 QWidget {{
                     background: {color};
-                    border-radius: 10px;
-                    padding: 2px;
+                    border-radius: 12px;
+                    padding: 4px;
+                    min-height: 28px;
                 }}
             """)
         else:
@@ -134,12 +136,12 @@ class FileContainer(QWidget):
     
     def init_ui(self):
         """初始化文件容器UI"""
-        self.setFixedHeight(20)
+        # 【样式说明】保持容器透明，让标签清晰可见
         self.setStyleSheet("background: transparent;")
         
         self.layout = QHBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(5)
+        self.layout.setSpacing(8)  # 标签间距
         self.layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
     
     def add_file(self, file_path, file_mode='temporary', file_id=None):
@@ -242,17 +244,22 @@ class InputBar(QWidget):
         # 主布局
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_layout.setSpacing(5)  # 【位置调整】增加间距让文件容器上移（数值越大，文件栏距离输入栏越远）
         
-        # 文件容器（20px高）
+        # ========== 文件容器（附件栏）==========
+        # 【位置调整说明】
+        # 1. main_layout.setSpacing(5) - 控制文件栏与输入栏的距离（数值越大距离越远）
+        # 2. setFixedHeight(30) - 控制文件栏高度（建议20-40之间）
+        # 3. main_layout.addWidget() - 在输入栏之前添加，确保显示在上方
         self.file_container = FileContainer()
+        self.file_container.setFixedHeight(40)  # 【位置调整】高度从20改为30，避免被遮挡
         # 连接文件删除信号，删除服务器上的持久文件
         self.file_container.file_deleted_signal.connect(self.on_server_file_deleted)
         # 连接文件预览信号
         self.file_container.file_preview_signal.connect(self.on_file_preview)
         main_layout.addWidget(self.file_container)
         
-        # 输入栏容器
+        # ========== 输入栏容器 ==========
         input_widget = QWidget()
         input_widget.setFixedHeight(80)
         input_widget.setStyleSheet("""
@@ -406,7 +413,7 @@ class InputBar(QWidget):
                 selected_mode = None
             
             if not selected_mode:
-                print(f"⚠️ 用户取消选择文件模式: {file_path}")
+                print(f"[WARNING] 用户取消选择文件模式: {file_path}")
                 continue
             
             # 根据模式处理文件
@@ -417,17 +424,17 @@ class InputBar(QWidget):
             elif selected_mode == 'persistent':
                 # 后续引用：先添加灰色chip，异步上传，成功后变绿色
                 self.file_container.add_file(file_path, file_mode='persistent', file_id=None)
-                print(f"🔗 持久文件chip已添加（灰色），开始上传: {file_path}")
+                print(f"[LINK] 持久文件chip已添加（灰色），开始上传: {file_path}")
                 def upload_and_update():
                     try:
                         file_id = self._upload_file_to_gemini(file_path)
                         if file_id:
                             self.on_file_upload(file_path, file_id)
-                            print(f"✅ 持久文件已上传，ID: {file_id}")
+                            print(f"[OK] 持久文件已上传，ID: {file_id}")
                         else:
-                            print(f"❌ 文件上传失败: {file_path}")
+                            print(f"[ERROR] 文件上传失败: {file_path}")
                     except Exception as e:
-                        print(f"❌ 文件上传失败: {file_path}, 错误: {str(e)}")
+                        print(f"[ERROR] 文件上传失败: {file_path}, 错误: {str(e)}")
                 import threading
                 threading.Thread(target=upload_and_update, daemon=True).start()
     
@@ -445,7 +452,7 @@ class InputBar(QWidget):
         
         manager = get_gemini_context_manager()
         if not manager:
-            print("❌ 无法获取 Gemini 上下文管理器")
+            print("[ERROR] 无法获取 Gemini 上下文管理器")
             return ""
         
         try:
@@ -459,11 +466,11 @@ class InputBar(QWidget):
             if hasattr(uploaded_file, 'name'):
                 return uploaded_file.name
             else:
-                print("⚠️ 上传的文件没有 name 属性")
+                print("[WARNING] 上传的文件没有 name 属性")
                 return ""
                 
         except Exception as e:
-            print(f"❌ 上传文件到 Gemini 失败: {str(e)}")
+            print(f"[ERROR] 上传文件到 Gemini 失败: {str(e)}")
             import traceback
             traceback.print_exc()
             return ""
@@ -479,7 +486,7 @@ class InputBar(QWidget):
         
         manager = get_gemini_context_manager()
         if not manager:
-            print("❌ 无法获取 Gemini 上下文管理器")
+            print("[ERROR] 无法获取 Gemini 上下文管理器")
             return
         
         # 从服务器删除文件
@@ -490,7 +497,7 @@ class InputBar(QWidget):
         from dialogs import FilePreviewDialog
         
         if not os.path.exists(file_path):
-            print(f"⚠️ 文件不存在: {file_path}")
+            print(f"[WARNING] 文件不存在: {file_path}")
             return
         
         try:
@@ -498,7 +505,7 @@ class InputBar(QWidget):
             preview_dialog = FilePreviewDialog(file_path, self)
             preview_dialog.exec()
         except Exception as e:
-            print(f"❌ 打开文件预览失败: {str(e)}")
+            print(f"[ERROR] 打开文件预览失败: {str(e)}")
             import traceback
             traceback.print_exc()
         
