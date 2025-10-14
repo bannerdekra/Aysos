@@ -9,8 +9,9 @@ from dialogs import ChatConfigDialog, DSNConfigDialog, show_connection_result
 
 
 class WorkerSignals(QObject):
-    result = pyqtSignal(str)
+    result = pyqtSignal(object)  # 改为 object 类型以支持 str 和 dict
     topic_result = pyqtSignal(str)
+    progress = pyqtSignal(float, str)  # 进度信号：(进度值, 状态描述)
 
 class Worker(QRunnable):
     def __init__(self, fn, *args, **kwargs):
@@ -70,6 +71,9 @@ class ChatManager:
         
         # API 相关信号
         self.chat_window.input_bar.cancel_request_signal.connect(self.handle_cancel_request)
+        
+        # 【新增】图片生成信号
+        self.chat_window.input_bar.generate_image_signal.connect(self.handle_generate_image)
         
         # 消息编辑和删除信号
         self.chat_window.chat_area.edit_message_signal.connect(self.handle_edit_message)
@@ -591,6 +595,175 @@ class ChatManager:
         # 重新加载消息到界面
         self.load_conversation_messages(self.current_conversation_id)
         print("消息删除完成并刷新界面")
+    
+    def handle_generate_image(self, user_description: str):
+        """
+        处理图片生成请求
+        
+        Args:
+            user_description: 用户的绘画描述
+        """
+        print(f"🎨 收到绘画请求: {user_description}")
+        
+        # 检查是否有当前对话
+        if not self.current_conversation_id:
+            print("没有当前对话，创建新对话")
+            self.start_new_conversation()
+        
+        # 保存用户的绘画请求
+        self.storage.add_message(self.current_conversation_id, 'user', f"[绘画请求] {user_description}", [])
+        self.chat_window.chat_area.add_history_bubble('user', f"🎨 {user_description}")
+        
+        # 添加思考气泡
+        thinking_bubble = self.chat_window.chat_area.add_thinking_bubble()
+        
+        # 创建图片生成工作线程
+        image_worker = ImageGenerationWorker(user_description)
+        
+        # 连接结果信号
+        image_worker.signals.result.connect(
+            lambda result: self.handle_image_generation_result(result, thinking_bubble)
+        )
+        
+        # 连接进度信号
+        image_worker.signals.progress.connect(
+            lambda progress, status: self.chat_window.chat_area.update_generation_progress(progress, status)
+        )
+        
+        # 启动线程
+        self.threadpool.start(image_worker)
+    
+    def handle_image_generation_result(self, result, thinking_bubble):
+        """
+        处理图片生成结果
+        
+        Args:
+            result: {'success': bool, 'image_path': str, 'error': str}
+            thinking_bubble: 思考气泡引用
+        """
+        # 确保 result 是字典类型
+        if not isinstance(result, dict):
+            print(f"[ERROR] 图片生成结果类型错误: {type(result)}")
+            self.chat_window.chat_area.update_chat_display(
+                "❌ 图片生成失败: 内部错误（结果类型不正确）"
+            )
+            self.chat_window.input_bar.set_normal_state()
+            self.chat_window.input_bar.exit_image_generation_mode()
+            return
+        
+        # 移除思考气泡（由display_generated_image内部处理）
+        
+        if result.get('success'):
+            image_path = result.get('image_path')
+            print(f"[OK] 图片生成成功: {image_path}")
+            
+            # 保存AI回复（图片路径）
+            self.storage.add_message(
+                self.current_conversation_id, 
+                'assistant', 
+                f"[生成图片] {os.path.basename(image_path)}",
+                []
+            )
+            
+            # 显示生成的图片
+            self.chat_window.chat_area.display_generated_image(image_path)
+            
+            # 重置输入栏状态
+            self.chat_window.input_bar.set_normal_state()
+            self.chat_window.input_bar.exit_image_generation_mode()
+            
+        else:
+            error_msg = result.get('error', '未知错误')
+            print(f"[ERROR] 图片生成失败: {error_msg}")
+            
+            # 显示错误消息
+            self.chat_window.chat_area.update_chat_display(
+                f"❌ 图片生成失败: {error_msg}\n\n请检查 Stable Diffusion WebUI 是否已启动。"
+            )
+            
+            # 重置输入栏状态
+            self.chat_window.input_bar.set_normal_state()
+            self.chat_window.input_bar.exit_image_generation_mode()
+
+
+class ImageGenerationWorker(QRunnable):
+    """图片生成工作线程 - 支持进度回调"""
+    def __init__(self, user_description: str):
+        super().__init__()
+        self.user_description = user_description
+        self.signals = WorkerSignals()
+    
+    def run(self):
+        """执行图片生成"""
+        try:
+            from image_generator import get_image_generator
+            
+            generator = get_image_generator()
+            
+            # 检查连接
+            print("[INFO] 检查 SD WebUI 连接...")
+            success, message = generator.check_connection()
+            if not success:
+                self.signals.result.emit({
+                    'success': False,
+                    'error': message
+                })
+                return
+            
+            # 发送初始进度
+            self.signals.progress.emit(0.1, "🤖 正在通过AI优化提示词...")
+            
+            # 通过AI翻译并优化提示词
+            print("[INFO] 正在通过AI优化提示词...")
+            prompt = generator.translate_prompt_via_ai(self.user_description, get_ai_reply)
+            
+            if not prompt or len(prompt.strip()) < 5:
+                self.signals.result.emit({
+                    'success': False,
+                    'error': '❌ AI 提示词生成失败，请重试'
+                })
+                return
+            
+            # 发送进度：开始生成
+            self.signals.progress.emit(0.2, "🎨 开始生成图像...")
+            
+            # 定义进度回调函数
+            def on_progress(progress: float, status: str):
+                # 将进度映射到 0.2-1.0 区间（前20%用于AI翻译）
+                mapped_progress = 0.2 + (progress * 0.8)
+                self.signals.progress.emit(mapped_progress, status)
+            
+            # 生成图片（带进度回调）
+            print(f"[INFO] 开始生成图像，提示词: {prompt[:50]}...")
+            image_path, error = generator.generate_image_with_progress(
+                prompt, 
+                progress_callback=on_progress
+            )
+            
+            if image_path:
+                # 最终进度
+                self.signals.progress.emit(1.0, "✅ 图像生成完成！")
+                
+                self.signals.result.emit({
+                    'success': True,
+                    'image_path': image_path,
+                    'error': None
+                })
+            else:
+                self.signals.result.emit({
+                    'success': False,
+                    'error': error or '生成失败'
+                })
+                
+        except Exception as e:
+            print(f"[ERROR] 图片生成异常: {e}")
+            import traceback
+            traceback.print_exc()
+            self.signals.result.emit({
+                'success': False,
+                'error': str(e)
+            })
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

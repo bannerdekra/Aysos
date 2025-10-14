@@ -1888,3 +1888,81 @@ class FilePreviewDialog(QDialog):
         """)
 
 
+class ImagePreviewDialog(QDialog):
+    """图片预览对话框 - 用于全分辨率预览生成的图片"""
+    
+    def __init__(self, image_path, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.image_path = image_path
+        self.setWindowTitle(f"图片预览 - {os.path.basename(image_path)}")
+        self.setMinimumSize(800, 600)
+        self.init_ui()
+        self.apply_theme()
+    
+    def init_ui(self):
+        """初始化UI"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        
+        # 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # 图片标签
+        image_label = QLabel()
+        pixmap = QPixmap(self.image_path)
+        if not pixmap.isNull():
+            # 显示全分辨率图片
+            image_label.setPixmap(pixmap)
+        else:
+            image_label.setText("无法加载图片")
+        
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scroll_area.setWidget(image_label)
+        layout.addWidget(scroll_area)
+        
+        # 关闭按钮
+        close_btn = QPushButton("关闭")
+        close_btn.setFixedSize(100, 35)
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+    
+    def apply_theme(self):
+        """应用主题"""
+        is_dark = False
+        parent = self.parent()
+        if parent and hasattr(parent, 'theme_manager'):
+            is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+        
+        bg_color = "#1a1a1a" if is_dark else "#f5f5f5"
+        text_color = "white" if is_dark else "black"
+        btn_bg = "#3a3a3a" if is_dark else "#e0e0e0"
+        btn_hover = "#4a4a4a" if is_dark else "#d0d0d0"
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+            }}
+            QLabel {{
+                color: {text_color};
+            }}
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {text_color};
+                border: none;
+                border-radius: 5px;
+                padding: 8px 15px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+            }}
+            QScrollArea {{
+                border: none;
+                background-color: transparent;
+            }}
+        """)
+
+

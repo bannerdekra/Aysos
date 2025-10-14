@@ -221,9 +221,6 @@ class FileContainer(QWidget):
 
 
 class InputBar(QWidget):
-    def on_file_upload(self, file_path, file_id):
-        """外部调用：持久文件上传成功后更新chip"""
-        self.file_container.update_file_chip_id(file_path, file_id)
     """输入栏组件 - 支持主题感知和文件上传"""
     send_message_signal = pyqtSignal(str, list)  # 消息内容, 文件列表
     prompt_signal = pyqtSignal(str)
@@ -231,12 +228,19 @@ class InputBar(QWidget):
     cancel_request_signal = pyqtSignal()
     model_changed_signal = pyqtSignal(str)
     search_text_signal = pyqtSignal()
+    generate_image_signal = pyqtSignal(str)  # 【新增】生成图片信号（用户描述）
+    
+    def on_file_upload(self, file_path, file_id):
+        """外部调用：持久文件上传成功后更新chip"""
+        self.file_container.update_file_chip_id(file_path, file_id)
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_prompt_action = None
         self.is_waiting_response = False
         self.is_dark_mode = False
+        self.is_generating_image = False  # 标记是否正在生成图片模式
+        self.original_placeholder = "请输入您的问题..."  # 保存原始占位符
         self.init_ui()
         
     def init_ui(self):
@@ -303,6 +307,35 @@ class InputBar(QWidget):
         self.update_input_style()
         self.input_line.setPlaceholderText("请输入您的问题...")
         self.input_line.returnPressed.connect(self.on_send_clicked)
+        
+        # 【新增】生成图片按钮
+        self.generate_image_btn = QPushButton('生成图片')
+        self.generate_image_btn.setFixedSize(90, 50)
+        self.generate_image_btn.setToolTip("AI 艺术创作")
+        self.generate_image_btn.setStyleSheet("""
+            QPushButton { 
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(138, 43, 226, 0.8),
+                    stop:1 rgba(75, 0, 130, 0.8));
+                color: white; 
+                font-size: 13px; 
+                font-weight: bold;
+                border-radius: 10px; 
+                border: none;
+            }
+            QPushButton:hover { 
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(138, 43, 226, 0.95),
+                    stop:1 rgba(75, 0, 130, 0.95));
+            }
+            QPushButton:pressed { 
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(138, 43, 226, 1.0),
+                    stop:1 rgba(75, 0, 130, 1.0));
+            }
+        """)
+        self.generate_image_btn.clicked.connect(self.on_generate_image_clicked)
+        self.is_generating_image = False  # 标记是否正在生成图片
 
         # 上传附件按钮
         self.upload_btn = QPushButton('+')
@@ -347,6 +380,7 @@ class InputBar(QWidget):
         layout.addWidget(self.features_btn)
         layout.addWidget(self.model_btn)
         layout.addWidget(self.input_line, 1)
+        layout.addWidget(self.generate_image_btn)  # 【新增】生成图片按钮
         layout.addWidget(self.upload_btn)
         layout.addWidget(self.send_btn)
         
@@ -510,22 +544,32 @@ class InputBar(QWidget):
             traceback.print_exc()
         
     def on_send_clicked(self):
-        """发送按钮点击事件 - 增加状态处理"""
+        """发送按钮点击事件 - 增加绘画模式判断"""
         if self.is_waiting_response:
             # 如果正在等待回复，点击则取消请求
             self.cancel_request_signal.emit()
             self.set_normal_state()
+            return
+        
+        user_input = self.input_line.text().strip()
+        if not user_input:
+            return
+        
+        # 判断是否为绘画模式
+        if self.is_generating_image:
+            # 发送绘画请求
+            self.generate_image_signal.emit(user_input)
+            self.input_line.clear()
+            self.set_waiting_state()
+            # 保持绘画模式，直到生成完成
         else:
             # 正常发送消息
-            user_input = self.input_line.text().strip()
-            if user_input:
-                # 获取所有上传的文件
-                files = self.file_container.get_files()
-                self.send_message_signal.emit(user_input, files)
-                self.input_line.clear()
-                # 不立即清空文件容器，等待发送成功后再清除临时文件
-                # 持久文件保留，临时文件在 on_send_success 中清除
-                self.set_waiting_state()
+            files = self.file_container.get_files()
+            self.send_message_signal.emit(user_input, files)
+            self.input_line.clear()
+            # 不立即清空文件容器，等待发送成功后再清除临时文件
+            # 持久文件保留，临时文件在 on_send_success 中清除
+            self.set_waiting_state()
     
     def on_send_success(self):
         """发送成功后的处理 - 不自动清除任何文件，让用户手动管理"""
@@ -861,3 +905,43 @@ class InputBar(QWidget):
         self.update_model_button_style()
         self.file_container.set_dark_mode(enabled)
         print(f"🎨 输入栏主题更新: {'深色模式' if enabled else '浅色模式'}")
+    
+    def on_generate_image_clicked(self):
+        """生成图片按钮点击事件"""
+        if not self.is_generating_image:
+            # 进入绘画模式
+            self.is_generating_image = True
+            self.generate_image_btn.setText('正在创作')
+            self.input_line.setPlaceholderText("尽情发挥，描绘您的艺术创作！")
+            self.input_line.setFocus()
+            
+            # 修改输入框样式以提示用户进入绘画模式
+            if self.is_dark_mode:
+                self.input_line.setStyleSheet("""
+                    background: rgba(60, 30, 80, 0.95); 
+                    border: 2px solid rgba(138, 43, 226, 0.8); 
+                    color: white; 
+                    font-size: 16px; 
+                    border-radius: 12px; 
+                    padding: 8px 12px;
+                """)
+            else:
+                self.input_line.setStyleSheet("""
+                    background: rgba(250, 240, 255, 0.95); 
+                    border: 2px solid rgba(138, 43, 226, 0.6); 
+                    color: #333; 
+                    font-size: 16px; 
+                    border-radius: 12px; 
+                    padding: 8px 12px;
+                """)
+        else:
+            # 退出绘画模式
+            self.exit_image_generation_mode()
+    
+    def exit_image_generation_mode(self):
+        """退出绘画模式"""
+        self.is_generating_image = False
+        self.generate_image_btn.setText('生成图片')
+        self.input_line.setPlaceholderText(self.original_placeholder)
+        self.update_input_style()
+

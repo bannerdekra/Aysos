@@ -2,7 +2,7 @@ import os
 import sys
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, 
                               QSizePolicy, QApplication, QSpacerItem, QPushButton, QMessageBox)
-from PyQt6.QtGui import QMovie, QFont, QFontMetrics, QTextDocument
+from PyQt6.QtGui import QMovie, QFont, QFontMetrics, QTextDocument, QPixmap
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QTimer
 from bubble_copy_handler import create_copyable_bubble_class, CopyButtonManager
 from api_client import SPINNER_GIF_URL
@@ -74,6 +74,7 @@ class ChatArea(QWidget):
         super().__init__(parent)
         self.message_bubbles = []
         self.current_thinking_bubble_layout = None
+        self.current_progress_label = None  # 添加进度标签引用
         self.standard_font = QFont("Arial", 18)
         self.font_metrics = QFontMetrics(self.standard_font)
         self.char_width = self.font_metrics.averageCharWidth()
@@ -435,6 +436,55 @@ class ChatArea(QWidget):
             
             self.current_thinking_bubble = None
             self.current_thinking_container = None
+            self.current_progress_label = None  # 清除进度标签引用
+    
+    def update_generation_progress(self, progress: float, status: str):
+        """
+        更新图片生成进度（在thinking bubble旁边显示）
+        
+        Args:
+            progress: 进度值 0.0-1.0
+            status: 状态描述文本
+        """
+        # 如果没有thinking bubble容器，先创建一个
+        if not hasattr(self, 'current_thinking_container') or not self.current_thinking_container:
+            return
+        
+        # 如果还没有进度标签，创建一个
+        if not hasattr(self, 'current_progress_label') or not self.current_progress_label:
+            self.current_progress_label = QLabel()
+            self.current_progress_label.setStyleSheet("""
+                QLabel {
+                    color: #666;
+                    font-size: 13px;
+                    padding: 5px 10px;
+                    background: rgba(100, 149, 237, 0.1);
+                    border-radius: 8px;
+                    margin-left: 10px;
+                }
+            """)
+            # 将进度标签添加到thinking容器的布局中
+            container_layout = self.current_thinking_container.layout()
+            if container_layout:
+                # 移除右侧的spacer
+                if container_layout.count() > 1:
+                    spacer_item = container_layout.itemAt(container_layout.count() - 1)
+                    if spacer_item and spacer_item.spacerItem():
+                        container_layout.removeItem(spacer_item)
+                
+                # 添加进度标签
+                container_layout.addWidget(self.current_progress_label)
+                
+                # 重新添加spacer
+                right_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+                container_layout.addItem(right_spacer)
+        
+        # 更新进度文本
+        percentage = int(progress * 100)
+        self.current_progress_label.setText(f"{status} {percentage}%")
+        
+        # 滚动到底部
+        self._scroll_to_bottom_precisely()
 
     def update_chat_display(self, reply_text):
         """更新Agent回复 - 使用优化的布局系统：内容包裹优先，最大宽度限制"""        
@@ -492,6 +542,121 @@ class ChatArea(QWidget):
         self.chat_content.update()
         self._scroll_to_bottom_precisely()
         self.current_thinking_bubble = None
+    
+    def display_generated_image(self, image_path: str):
+        """显示生成的图片（不包裹气泡，按1/4分辨率显示）
+        
+        Args:
+            image_path: 图片文件路径
+        """
+        # 移除thinking动画
+        self.remove_thinking_bubble()
+        
+        if not os.path.exists(image_path):
+            print(f"[ERROR] 图片文件不存在: {image_path}")
+            return
+        
+        try:
+            # 加载图片
+            pixmap = QPixmap(image_path)
+            if pixmap.isNull():
+                print(f"[ERROR] 无法加载图片: {image_path}")
+                return
+            
+            # 获取原始尺寸
+            original_width = pixmap.width()
+            original_height = pixmap.height()
+            
+            # 计算1/4分辨率（0.5倍缩放）
+            display_width = int(original_width * 0.5)
+            display_height = int(original_height * 0.5)
+            
+            # 创建消息行容器
+            message_row = QWidget()
+            message_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+            row_layout = QHBoxLayout(message_row)
+            row_layout.setContentsMargins(8, 4, 8, 4)
+            row_layout.setSpacing(0)
+            
+            # 创建可点击的图片标签
+            image_label = QLabel(message_row)
+            image_label.setPixmap(pixmap.scaled(
+                display_width, display_height,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            ))
+            image_label.setCursor(Qt.CursorShape.PointingHandCursor)
+            image_label.setToolTip("点击查看原图")
+            
+            # 保存图片路径用于点击预览
+            image_label.image_path = image_path
+            image_label.mousePressEvent = lambda event: self._show_image_preview(image_path)
+            
+            # 添加圆角和阴影效果
+            image_label.setStyleSheet("""
+                QLabel {
+                    border-radius: 12px;
+                    background: white;
+                    padding: 8px;
+                }
+            """)
+            
+            # 左对齐（AI回复）
+            row_layout.addWidget(image_label)
+            right_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            row_layout.addItem(right_spacer)
+            
+            # 存储图片信息
+            bubble_index = len(self.message_bubbles)
+            self.message_bubbles.append({
+                'bubble': image_label,
+                'role': 'assistant',
+                'content': f'[图片: {os.path.basename(image_path)}]',
+                'container': message_row,
+                'image_path': image_path
+            })
+            
+            # 添加到布局
+            self.agent_layout.addWidget(message_row)
+            
+            # 添加间距
+            spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+            self.agent_layout.addItem(spacer_item)
+            
+            # 更新显示
+            message_row.adjustSize()
+            self.chat_content.update()
+            self._scroll_to_bottom_precisely()
+            
+            print(f"[OK] 图片已显示: {image_path}")
+            print(f"[INFO] 显示尺寸: {display_width}x{display_height} (原始: {original_width}x{original_height})")
+            
+        except Exception as e:
+            print(f"[ERROR] 显示图片失败: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _show_image_preview(self, image_path: str):
+        """显示图片原图预览"""
+        try:
+            from dialogs import ImagePreviewDialog
+            preview = ImagePreviewDialog(image_path, parent=self.window())
+            preview.exec()
+        except ImportError:
+            # 如果没有ImagePreviewDialog，使用FilePreviewDialog
+            try:
+                from dialogs import FilePreviewDialog
+                preview = FilePreviewDialog(image_path, os.path.basename(image_path), parent=self.window())
+                preview.exec()
+            except Exception as e:
+                QMessageBox.information(
+                    self,
+                    "预览",
+                    f"图片路径: {image_path}",
+                    QMessageBox.StandardButton.Ok
+                )
+        except Exception as e:
+            print(f"[ERROR] 预览图片失败: {e}")
 
     def add_history_bubble(self, role, content, file_paths=None):
         """添加历史记录气泡 - 使用优化的布局系统：内容包裹优先，最大宽度限制
