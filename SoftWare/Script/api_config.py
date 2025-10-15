@@ -3,24 +3,32 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-# 代理设置 - 用于越过防火墙访问 API
-def setup_proxy():
-    """设置本机代理，默认端口 7890"""
-    proxy_host = "127.0.0.1"
-    proxy_port = "7890"
-    proxy_url = f"http://{proxy_host}:{proxy_port}"
-    
-    # 设置环境变量代理
-    os.environ['HTTP_PROXY'] = proxy_url
-    os.environ['HTTPS_PROXY'] = proxy_url
-    os.environ['http_proxy'] = proxy_url
-    os.environ['https_proxy'] = proxy_url
-    
-    # 使用ASCII字符避免编码问题
-    print(f"[OK] Proxy set: {proxy_url}")
+_PROXY_HOST = "127.0.0.1"
+_PROXY_PORT = "7890"
+_PROXY_URL = f"http://{_PROXY_HOST}:{_PROXY_PORT}"
+_PROXY_ENV_VARS = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
 
-# 初始化时自动设置代理
-setup_proxy()
+
+def enable_proxy() -> None:
+    """Enable local HTTP proxy for outbound requests."""
+    changed = False
+    for var in _PROXY_ENV_VARS:
+        if os.environ.get(var) != _PROXY_URL:
+            os.environ[var] = _PROXY_URL
+            changed = True
+    if changed:
+        print(f"[OK] Proxy enabled: {_PROXY_URL}")
+
+
+def disable_proxy() -> None:
+    """Disable HTTP proxy by clearing related environment variables."""
+    removed = False
+    for var in _PROXY_ENV_VARS:
+        if var in os.environ:
+            os.environ.pop(var)
+            removed = True
+    if removed:
+        print("[OK] Proxy disabled")
 
 # 配置文件路径：位于 SoftWare 目录下，便于打包与分发
 _BASE_DIR = Path(__file__).resolve().parents[1]
@@ -31,7 +39,7 @@ _DEFAULT_CONFIG = {
     "current_provider": "deepseek",
     "providers": {
         "deepseek": {
-            "api_key": "sk-91c8333c0f754ede8de847fadade03b4",
+            "api_key": "",
             "api_url": "https://api.deepseek.com/chat/completions",
             "model": "deepseek-chat",
             "display_name": "DeepSeek"
@@ -44,7 +52,7 @@ _DEFAULT_CONFIG = {
         }
     },
     # 保持向后兼容性的旧配置字段
-    "api_key": "sk-91c8333c0f754ede8de847fadade03b4",
+    "api_key": "",
     "api_url": "https://api.deepseek.com/chat/completions",
     "model": "deepseek-chat"
 }
@@ -267,6 +275,20 @@ def get_gemini_api_key() -> str:
     providers = config.get('providers', {})
     gemini_config = providers.get('gemini', {})
     return gemini_config.get('api_key', '')
+
+
+def get_deepseek_api_key() -> str:
+    """获取 DeepSeek API 密钥，优先从环境变量 DeepSeek-APIKEY 获取。"""
+    env_key = os.getenv('DeepSeek-APIKEY')
+    if not env_key:
+        env_key = os.getenv('DEEPSEEK_API_KEY')  # 兼容旧变量名
+    if env_key:
+        return env_key
+
+    config = load_api_config()
+    providers = config.get('providers', {})
+    deepseek_config = providers.get('deepseek', {})
+    return deepseek_config.get('api_key', '')
 
 
 def update_gemini_model_to_2_5():

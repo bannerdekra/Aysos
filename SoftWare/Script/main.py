@@ -74,6 +74,7 @@ class ChatManager:
         
         # 【新增】图片生成信号
         self.chat_window.input_bar.generate_image_signal.connect(self.handle_generate_image)
+        self.chat_window.input_bar.generate_with_params_signal.connect(self.handle_generate_with_params)
         
         # 消息编辑和删除信号
         self.chat_window.chat_area.edit_message_signal.connect(self.handle_edit_message)
@@ -684,6 +685,119 @@ class ChatManager:
             # 重置输入栏状态
             self.chat_window.input_bar.set_normal_state()
             self.chat_window.input_bar.exit_image_generation_mode()
+    
+    def handle_generate_with_params(self, params: dict):
+        """
+        处理带参数的图片生成请求
+        
+        Args:
+            params: 生成参数字典
+        """
+        print(f"🎨 收到带参数的绘画请求")
+        print(f"  参数: {params}")
+        
+        # 检查是否有当前对话
+        if not self.current_conversation_id:
+            print("没有当前对话，创建新对话")
+            self.start_new_conversation()
+        
+        # 保存用户的绘画请求
+        prompt = params.get('prompt', '')
+        self.storage.add_message(self.current_conversation_id, 'user', f"[绘画请求] {prompt[:50]}...", [])
+        self.chat_window.chat_area.add_history_bubble('user', f"🎨 {prompt[:50]}...")
+        
+        # 添加思考气泡
+        thinking_bubble = self.chat_window.chat_area.add_thinking_bubble()
+        
+        # 创建图片生成工作线程（使用自定义参数）
+        image_worker = ImageGenerationWithParamsWorker(params)
+        
+        # 连接结果信号
+        image_worker.signals.result.connect(
+            lambda result: self.handle_image_generation_result(result, thinking_bubble)
+        )
+        
+        # 连接进度信号
+        image_worker.signals.progress.connect(
+            lambda progress, status: self.chat_window.chat_area.update_generation_progress(progress, status)
+        )
+        
+        # 启动线程
+        self.threadpool.start(image_worker)
+
+
+class ImageGenerationWithParamsWorker(QRunnable):
+    """图片生成工作线程 - 使用自定义参数"""
+    def __init__(self, params: dict):
+        super().__init__()
+        self.params = params
+        self.signals = WorkerSignals()
+    
+    def run(self):
+        """执行图片生成"""
+        try:
+            from image_generator import get_image_generator
+            
+            generator = get_image_generator()
+            
+            # 进度回调函数
+            def progress_callback(progress: float, status: str):
+                self.signals.progress.emit(progress, status)
+            
+            # 提取参数
+            prompt = self.params.get('prompt', '')
+            negative_prompt = self.params.get('negative_prompt', '')
+            
+            if not prompt:
+                self.signals.result.emit({
+                    'success': False,
+                    'error': '提示词为空'
+                })
+                return
+            
+            # 生成图片（直接使用用户提供的英文提示词）
+            print(f"[INFO] 使用自定义参数生成图片...")
+            print(f"  提示词: {prompt}")
+            print(f"  负面提示词: {negative_prompt}")
+            print(f"  采样器: {self.params.get('sampler_name')}")
+            print(f"  步数: {self.params.get('steps')}")
+            
+            # 准备kwargs参数
+            kwargs = {
+                'sampler_name': self.params.get('sampler_name'),
+                'scheduler': self.params.get('scheduler'),
+                'steps': self.params.get('steps'),
+                'cfg_scale': self.params.get('cfg_scale'),
+                'seed': self.params.get('seed'),
+                'width': self.params.get('width'),
+                'height': self.params.get('height')
+            }
+            
+            image_path, error = generator.generate_image_with_progress(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                progress_callback=progress_callback,
+                **kwargs
+            )
+            
+            if image_path:
+                self.signals.result.emit({
+                    'success': True,
+                    'image_path': image_path
+                })
+            else:
+                self.signals.result.emit({
+                    'success': False,
+                    'error': error or '未知错误'
+                })
+                
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.signals.result.emit({
+                'success': False,
+                'error': str(e)
+            })
 
 
 class ImageGenerationWorker(QRunnable):
@@ -713,11 +827,19 @@ class ImageGenerationWorker(QRunnable):
             # 发送初始进度
             self.signals.progress.emit(0.1, "🤖 正在通过AI优化提示词...")
             
-            # 通过AI翻译并优化提示词
+            # 通过AI翻译并优化提示词（新版本返回正面和负面提示词）
             print("[INFO] 正在通过AI优化提示词...")
-            prompt = generator.translate_prompt_via_ai(self.user_description, get_ai_reply)
+            try:
+                positive_prompt, negative_prompt = generator.translate_prompt_via_ai(self.user_description)
+            except Exception as e:
+                print(f"[ERROR] 提示词翻译失败: {e}")
+                self.signals.result.emit({
+                    'success': False,
+                    'error': f'❌ AI 提示词生成失败: {str(e)}'
+                })
+                return
             
-            if not prompt or len(prompt.strip()) < 5:
+            if not positive_prompt or len(positive_prompt.strip()) < 5:
                 self.signals.result.emit({
                     'success': False,
                     'error': '❌ AI 提示词生成失败，请重试'
@@ -733,11 +855,14 @@ class ImageGenerationWorker(QRunnable):
                 mapped_progress = 0.2 + (progress * 0.8)
                 self.signals.progress.emit(mapped_progress, status)
             
-            # 生成图片（带进度回调）
-            print(f"[INFO] 开始生成图像，提示词: {prompt[:50]}...")
+            # 生成图片（带进度回调，使用负面提示词）
+            print(f"[INFO] 开始生成图像")
+            print(f"[INFO] 正面提示词: {positive_prompt[:80]}...")
+            print(f"[INFO] 负面提示词: {negative_prompt[:80]}...")
             image_path, error = generator.generate_image_with_progress(
-                prompt, 
-                progress_callback=on_progress
+                positive_prompt, 
+                progress_callback=on_progress,
+                negative_prompt=negative_prompt
             )
             
             if image_path:

@@ -19,7 +19,13 @@ except ImportError:
     print("❌ Google GenAI SDK 未安装")
     GENAI_AVAILABLE = False
 
-from api_config import load_api_config, get_current_provider_config, get_current_provider_name
+from api_config import (
+    get_current_provider_config,
+    get_current_provider_name,
+    enable_proxy,
+    disable_proxy,
+    get_deepseek_api_key,
+)
 
 # 导入 Gemini 上下文管理器
 try:
@@ -52,6 +58,7 @@ def get_ai_reply(messages, conversation_id=None, files=None, is_one_time_attachm
     """
     
     provider_name = get_current_provider_name()
+    _apply_proxy_policy(provider_name)
     provider_config = get_current_provider_config()
     
     api_key = (provider_config.get('api_key') or '').strip()
@@ -63,6 +70,13 @@ def get_ai_reply(messages, conversation_id=None, files=None, is_one_time_attachm
         # Gemini 使用系统环境变量，不需要在这里检查 API key
         pass
     else:
+        if provider_name == 'deepseek':
+            env_key = get_deepseek_api_key()
+            if env_key:
+                api_key = env_key.strip()
+            else:
+                print("[WARNING] DeepSeek 环境变量未设置: DeepSeek-APIKEY")
+
         # 对于其他提供商，需要 API key 和 URL
         if not api_key or not api_url:
             return f"Error: API key or URL is not configured for {provider_name}. Please set it in Settings > API."
@@ -99,6 +113,14 @@ def _call_deepseek_api(messages, api_key, api_url, model_name):
     response.raise_for_status()
     data = response.json()
     return data['choices'][0]['message']['content']
+
+
+def _apply_proxy_policy(provider_name: str) -> None:
+    """Enable or disable proxy based on provider selection."""
+    if provider_name == 'gemini':
+        enable_proxy()
+    else:
+        disable_proxy()
 
 
 def _call_gemini_api_with_context(messages, api_key, model_name, conversation_id=None, files=None, is_one_time_attachment=None):

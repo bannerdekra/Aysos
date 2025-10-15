@@ -229,6 +229,7 @@ class InputBar(QWidget):
     model_changed_signal = pyqtSignal(str)
     search_text_signal = pyqtSignal()
     generate_image_signal = pyqtSignal(str)  # 【新增】生成图片信号（用户描述）
+    generate_with_params_signal = pyqtSignal(dict)  # 【新增】带参数生成图片信号
     
     def on_file_upload(self, file_path, file_id):
         """外部调用：持久文件上传成功后更新chip"""
@@ -241,6 +242,7 @@ class InputBar(QWidget):
         self.is_dark_mode = False
         self.is_generating_image = False  # 标记是否正在生成图片模式
         self.original_placeholder = "请输入您的问题..."  # 保存原始占位符
+        self.creation_params = {}  # 存储创作参数
         self.init_ui()
         
     def init_ui(self):
@@ -906,37 +908,104 @@ class InputBar(QWidget):
         self.file_container.set_dark_mode(enabled)
         print(f"🎨 输入栏主题更新: {'深色模式' if enabled else '浅色模式'}")
     
+    def on_creation_adjust_clicked(self):
+        """创作调整按钮点击事件"""
+        from creation_panel import CreationPanel
+        
+        # 创建对话框，传入当前参数
+        dialog = CreationPanel(self, self.creation_params)
+        
+        # 连接信号
+        dialog.params_applied.connect(self.on_params_applied)
+        
+        # 显示对话框
+        dialog.exec()
+    
+    def on_params_applied(self, params: dict):
+        """处理应用的参数"""
+        self.creation_params = params
+        print(f"[INFO] 创作参数已更新:")
+        print(f"  采样器: {params.get('sampler_name')}")
+        print(f"  调度器: {params.get('scheduler')}")
+        print(f"  步数: {params.get('steps')}")
+        print(f"  尺寸: {params.get('width')}x{params.get('height')}")
+        print(f"  CFG: {params.get('cfg_scale')}")
+        print(f"  种子: {params.get('seed')}")
+        
+        # 如果提示词已填写，直接生成
+        if params.get('prompt'):
+            self.generate_with_params_signal.emit(params)
+    
     def on_generate_image_clicked(self):
-        """生成图片按钮点击事件"""
+        """生成图片按钮点击事件 - 弹出菜单"""
         if not self.is_generating_image:
-            # 进入绘画模式
-            self.is_generating_image = True
-            self.generate_image_btn.setText('正在创作')
-            self.input_line.setPlaceholderText("尽情发挥，描绘您的艺术创作！")
-            self.input_line.setFocus()
+            # 创建弹出菜单
+            menu = QMenu(self)
+            menu.setStyleSheet("""
+                QMenu {
+                    background-color: white;
+                    border: 2px solid rgba(52, 152, 219, 0.5);
+                    border-radius: 8px;
+                    padding: 5px;
+                }
+                QMenu::item {
+                    padding: 8px 20px;
+                    border-radius: 4px;
+                }
+                QMenu::item:selected {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                        stop:0 rgba(52, 152, 219, 0.3),
+                        stop:1 rgba(230, 240, 255, 0.3));
+                }
+            """)
             
-            # 修改输入框样式以提示用户进入绘画模式
-            if self.is_dark_mode:
-                self.input_line.setStyleSheet("""
-                    background: rgba(60, 30, 80, 0.95); 
-                    border: 2px solid rgba(138, 43, 226, 0.8); 
-                    color: white; 
-                    font-size: 16px; 
-                    border-radius: 12px; 
-                    padding: 8px 12px;
-                """)
-            else:
-                self.input_line.setStyleSheet("""
-                    background: rgba(250, 240, 255, 0.95); 
-                    border: 2px solid rgba(138, 43, 226, 0.6); 
-                    color: #333; 
-                    font-size: 16px; 
-                    border-radius: 12px; 
-                    padding: 8px 12px;
-                """)
+            # 添加"创作调整"选项
+            adjust_action = QAction("🎨 创作调整", self)
+            adjust_action.triggered.connect(self.on_creation_adjust_clicked)
+            menu.addAction(adjust_action)
+            
+            # 添加分隔符
+            menu.addSeparator()
+            
+            # 添加"快速生成"选项
+            quick_action = QAction("⚡ 快速生成", self)
+            quick_action.triggered.connect(self.start_quick_generation)
+            menu.addAction(quick_action)
+            
+            # 在按钮上方显示菜单
+            button_pos = self.generate_image_btn.mapToGlobal(QPoint(0, 0))
+            menu.exec(QPoint(button_pos.x(), button_pos.y() - menu.sizeHint().height()))
         else:
             # 退出绘画模式
             self.exit_image_generation_mode()
+    
+    def start_quick_generation(self):
+        """开始快速生成模式"""
+        # 进入绘画模式
+        self.is_generating_image = True
+        self.generate_image_btn.setText('正在创作')
+        self.input_line.setPlaceholderText("尽情发挥，描绘您的艺术创作！")
+        self.input_line.setFocus()
+        
+        # 修改输入框样式以提示用户进入绘画模式
+        if self.is_dark_mode:
+            self.input_line.setStyleSheet("""
+                background: rgba(60, 30, 80, 0.95); 
+                border: 2px solid rgba(138, 43, 226, 0.8); 
+                color: white; 
+                font-size: 16px; 
+                border-radius: 12px; 
+                padding: 8px 12px;
+            """)
+        else:
+            self.input_line.setStyleSheet("""
+                background: rgba(250, 240, 255, 0.95); 
+                border: 2px solid rgba(138, 43, 226, 0.6); 
+                color: #333; 
+                font-size: 16px; 
+                border-radius: 12px; 
+                padding: 8px 12px;
+            """)
     
     def exit_image_generation_mode(self):
         """退出绘画模式"""
