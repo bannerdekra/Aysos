@@ -740,9 +740,11 @@ class ImageGenerationWithParamsWorker(QRunnable):
             
             generator = get_image_generator()
             
-            # 进度回调函数
+            # 步骤1: 检查连接
             def progress_callback(progress: float, status: str):
                 self.signals.progress.emit(progress, status)
+            
+            progress_callback(0.05, "连接 SD WebUI")
             
             # 提取参数
             prompt = self.params.get('prompt', '')
@@ -754,6 +756,9 @@ class ImageGenerationWithParamsWorker(QRunnable):
                     'error': '提示词为空'
                 })
                 return
+            
+            # 步骤2: 开始生成
+            progress_callback(0.15, "正在生成图片")
             
             # 生成图片（直接使用用户提供的英文提示词）
             print(f"[INFO] 使用自定义参数生成图片...")
@@ -814,7 +819,8 @@ class ImageGenerationWorker(QRunnable):
             
             generator = get_image_generator()
             
-            # 检查连接
+            # 步骤1: 检查连接
+            self.signals.progress.emit(0.05, "连接 SD WebUI")
             print("[INFO] 检查 SD WebUI 连接...")
             success, message = generator.check_connection()
             if not success:
@@ -824,10 +830,8 @@ class ImageGenerationWorker(QRunnable):
                 })
                 return
             
-            # 发送初始进度
-            self.signals.progress.emit(0.1, "🤖 正在通过AI优化提示词...")
-            
-            # 通过AI翻译并优化提示词（新版本返回正面和负面提示词）
+            # 步骤2: 生成提示词
+            self.signals.progress.emit(0.1, "正在生成提示词")
             print("[INFO] 正在通过AI优化提示词...")
             try:
                 positive_prompt, negative_prompt = generator.translate_prompt_via_ai(self.user_description)
@@ -846,8 +850,8 @@ class ImageGenerationWorker(QRunnable):
                 })
                 return
             
-            # 发送进度：开始生成
-            self.signals.progress.emit(0.2, "🎨 开始生成图像...")
+            # 步骤3: 开始生成图片
+            self.signals.progress.emit(0.2, "正在生成图片")
             
             # 定义进度回调函数
             def on_progress(progress: float, status: str):

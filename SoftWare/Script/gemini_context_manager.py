@@ -118,13 +118,14 @@ class GeminiContextManager:
         self.system_instruction = instruction
         print(f"📋 系统指令已设置: {instruction[:50]}...")
     
-    def create_chat_session(self, conversation_id: str, model: str = "gemini-2.5-flash"):
+    def create_chat_session(self, conversation_id: str, model: str = "gemini-2.5-flash", tools=None):
         """
         为指定对话创建 Chat Session
         
         Args:
             conversation_id: 对话ID
             model: 使用的模型名称
+            tools: Function Calling 工具（可以是 types.Tool 对象或 types.Tool 对象列表）
         """
         if conversation_id in self.chat_sessions:
             print(f"[WARNING] Chat Session already exists for conversation {conversation_id}")
@@ -134,6 +135,14 @@ class GeminiContextManager:
         config = {}
         if self.system_instruction:
             config["system_instruction"] = self.system_instruction
+        
+        # 添加工具配置（如果提供）
+        if tools:
+            # 如果 tools 不是列表，将其包装成列表
+            if not isinstance(tools, list):
+                tools = [tools]
+            config["tools"] = tools
+            print(f"[Gemini] 📦 已添加工具到 Chat Session")
         
         # 创建 Chat Session
         try:
@@ -145,9 +154,11 @@ class GeminiContextManager:
             self.chat_sessions[conversation_id] = {
                 'chat': chat,
                 'model': model,
+                'tools': tools,  # 保存工具配置
                 'created_at': datetime.now()
             }
-            print(f"[OK] Chat Session created for conversation {conversation_id} (model: {model})")
+            tools_info = " (with tools)" if tools else ""
+            print(f"[OK] Chat Session created for conversation {conversation_id} (model: {model}){tools_info}")
         except Exception as e:
             print(f"[ERROR] Failed to create Chat Session: {str(e)}")
             raise
@@ -208,7 +219,8 @@ class GeminiContextManager:
     def send_message_with_files(self, conversation_id: str, message: str, 
                                 file_paths: List[str] = None, 
                                 persistent_file_ids: List[str] = None,
-                                model: str = "gemini-2.5-flash") -> str:
+                                model: str = "gemini-2.5-flash",
+                                tools=None) -> str:
         """
         发送包含文件的消息（多模态上下文）- 支持临时和持久两种模式
         
@@ -222,13 +234,18 @@ class GeminiContextManager:
             file_paths: 临时文件路径列表（内嵌上传）
             persistent_file_ids: 持久文件ID列表（File API引用）
             model: 使用的模型名称
+            tools: Gemini 工具 Schema 列表（可选）
             
         Returns:
             模型的回复文本
         """
         # 确保 Chat Session 存在
         if conversation_id not in self.chat_sessions:
-            self.create_chat_session(conversation_id, model)
+            # 自动包装单个 Tool 为列表（用于日志显示）
+            tools_list = tools if not tools else ([tools] if not isinstance(tools, list) else tools)
+            tools_info = f"，包含 {len(tools_list)} 个工具" if tools else ""
+            print(f"[Gemini] 🆕 创建带文件的 Chat Session{tools_info}")
+            self.create_chat_session(conversation_id, model, tools)
         
         chat = self.get_chat_session(conversation_id)
         if not chat:
@@ -724,7 +741,7 @@ class GeminiContextManager:
             print(f"[WARNING] 提取响应文本失败: {e}")
         return "AI 助手未返回有效内容。"
     
-    def send_text_message(self, conversation_id: str, message: str, model: str = "gemini-2.5-flash") -> str:
+    def send_text_message(self, conversation_id: str, message: str, model: str = "gemini-2.5-flash", tools=None) -> str:
         """
         发送纯文本消息
         
@@ -732,22 +749,28 @@ class GeminiContextManager:
             conversation_id: 对话ID
             message: 消息内容
             model: 模型名称
+            tools: Function Calling 工具列表（可选）
             
         Returns:
             模型回复文本
         """
         # 确保 Chat Session 存在
         if conversation_id not in self.chat_sessions:
-            self.create_chat_session(conversation_id, model)
+            self.create_chat_session(conversation_id, model, tools=tools)
         
         chat = self.get_chat_session(conversation_id)
         if not chat:
             raise ValueError(f"无法获取对话 {conversation_id} 的 Chat Session")
         
         try:
-            print(f"📤 发送纯文本消息: {message[:50]}...")
+            # 自动包装单个 Tool 为列表（用于日志显示）
+            tools_list = tools if not tools else ([tools] if not isinstance(tools, list) else tools)
+            tools_info = f" (with {len(tools_list)} tools)" if tools else ""
+            print(f"📤 发送纯文本消息{tools_info}: {message[:50]}...")
             response = chat.send_message(message)
-            return self._extract_text_from_response(response)
+            # 返回完整的 response 对象而不是只返回文本
+            # 这样调用方可以检查是否有 function_call
+            return response
         except Exception as e:
             print(f"[ERROR] 发送纯文本消息失败: {str(e)}")
             return f"Error: {str(e)}"

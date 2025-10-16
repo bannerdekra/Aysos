@@ -1,6 +1,7 @@
 """
 创作控制面板
 用于调整 Stable Diffusion 的生成参数
+支持参数持久化，自动保存和加载用户习惯
 """
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -10,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QIntValidator
 import requests
+from sd_config import get_sd_config, save_sd_params
 
 
 class CreationPanel(QDialog):
@@ -64,24 +66,15 @@ class CreationPanel(QDialog):
         
         Args:
             parent: 父窗口
-            current_params: 当前参数字典
+            current_params: 当前参数字典（如果提供，会覆盖保存的配置）
         """
         super().__init__(parent)
         
-        # 默认参数
-        self.default_params = {
-            "prompt": "",
-            "negative_prompt": "lowres, bad quality, deformed, blurry, worst quality",
-            "sampler_name": "DPM++ 2M",
-            "scheduler": "Karras",
-            "steps": 20,
-            "cfg_scale": 7,
-            "seed": -1,
-            "width": 512,
-            "height": 512
-        }
+        # 加载保存的配置
+        sd_config = get_sd_config()
+        self.default_params = sd_config.get_all()
         
-        # 如果提供了当前参数，更新默认值
+        # 如果提供了当前参数，更新配置
         if current_params:
             self.default_params.update(current_params)
         
@@ -89,9 +82,9 @@ class CreationPanel(QDialog):
         self.load_params(self.default_params)
     
     def init_ui(self):
-        """初始化UI"""
+        """初始化UI - 紧凑布局优化版"""
         self.setWindowTitle("创作控制面板")
-        self.setFixedSize(600, 800)  # 增加高度以容纳模型选择
+        self.setFixedSize(600, 680)  # 🔧 减小高度（800->680）
         self.setModal(True)  # 模态对话框
         
         # 设置窗口样式
@@ -174,71 +167,79 @@ class CreationPanel(QDialog):
         """)
         
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(6)  # 🔧 减小间距（10->6）
+        main_layout.setContentsMargins(15, 8, 15, 12)  # 🔧 减小边距（20,20,20,20 -> 15,8,15,12）
         
-        # 标题
+        # 标题 - 更紧凑
         title = QLabel("🎨 创作控制面板")
         title.setStyleSheet("""
-            font-size: 18px;
+            font-size: 16px;
             font-weight: bold;
             color: #2c3e50;
-            padding: 10px;
-        """)
+            padding: 3px;
+        """)  # 🔧 减小标题字体和padding（18px,10px -> 16px,3px）
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title)
         
-        # 1. 提示词区域（并排，更紧凑）
+        # 1. 提示词区域（并排，更紧凑，无外框）
         prompts_layout = QHBoxLayout()
         
         # 正向提示词
-        positive_group = QGroupBox("正向提示词 (最多75个单词)")
-        positive_group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid #3498db;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-                color: #3498db;
-            }
-        """)
-        positive_layout = QVBoxLayout(positive_group)
+        positive_container = QVBoxLayout()
+        positive_container.setSpacing(3)  # 🔧 减小内部间距
+        positive_header = QHBoxLayout()
+        positive_title = QLabel("正向提示词")
+        positive_title.setStyleSheet("""
+            font-weight: bold;
+            color: #3498db;
+            font-size: 12px;
+        """)  # 🔧 减小字体（13px->12px）
+        self.positive_word_count = QLabel("0/75")
+        self.positive_word_count.setStyleSheet("""
+            font-weight: bold;
+            color: #7f8c8d;
+            font-size: 11px;
+        """)  # 🔧 减小字体（12px->11px）
+        positive_header.addWidget(positive_title)
+        positive_header.addStretch()
+        positive_header.addWidget(self.positive_word_count)
+        positive_container.addLayout(positive_header)
+        
         self.prompt_edit = QTextEdit()
-        self.prompt_edit.setFixedHeight(70)  # 减小高度
+        self.prompt_edit.setFixedHeight(60)  # 🔧 减小高度（70->60）
         self.prompt_edit.setPlaceholderText("输入正向提示词...")
-        positive_layout.addWidget(self.prompt_edit)
+        self.prompt_edit.textChanged.connect(self.update_positive_word_count)
+        positive_container.addWidget(self.prompt_edit)
         
         # 负向提示词
-        negative_group = QGroupBox("负向提示词 (最多75个单词)")
-        negative_group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid #e74c3c;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-                color: #e74c3c;
-            }
-        """)
-        negative_layout = QVBoxLayout(negative_group)
-        self.negative_prompt_edit = QTextEdit()
-        self.negative_prompt_edit.setFixedHeight(70)  # 减小高度
-        self.negative_prompt_edit.setPlaceholderText("输入负向提示词...")
-        negative_layout.addWidget(self.negative_prompt_edit)
+        negative_container = QVBoxLayout()
+        negative_container.setSpacing(3)  # 🔧 减小内部间距
+        negative_header = QHBoxLayout()
+        negative_title = QLabel("负向提示词")
+        negative_title.setStyleSheet("""
+            font-weight: bold;
+            color: #e74c3c;
+            font-size: 12px;
+        """)  # 🔧 减小字体（13px->12px）
+        self.negative_word_count = QLabel("0/75")
+        self.negative_word_count.setStyleSheet("""
+            font-weight: bold;
+            color: #7f8c8d;
+            font-size: 11px;
+        """)  # 🔧 减小字体（12px->11px）
+        negative_header.addWidget(negative_title)
+        negative_header.addStretch()
+        negative_header.addWidget(self.negative_word_count)
+        negative_container.addLayout(negative_header)
         
-        prompts_layout.addWidget(positive_group)
-        prompts_layout.addWidget(negative_group)
+        self.negative_prompt_edit = QTextEdit()
+        self.negative_prompt_edit.setFixedHeight(60)  # 🔧 减小高度（70->60）
+        self.negative_prompt_edit.setPlaceholderText("输入负向提示词...")
+        self.negative_prompt_edit.textChanged.connect(self.update_negative_word_count)
+        negative_container.addWidget(self.negative_prompt_edit)
+        
+        prompts_layout.addLayout(positive_container)
+        prompts_layout.addLayout(negative_container)
         main_layout.addLayout(prompts_layout)
         
         # 1.5 模型选择（新增）
@@ -442,21 +443,22 @@ class CreationPanel(QDialog):
         seed_layout.addWidget(seed_info)
         main_layout.addLayout(seed_layout)
         
-        # 8. 应用和取消按钮（并排）
+        # 8. 应用和取消按钮（并排，更紧凑）
         buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(15)  # 🔧 设置按钮间距
         buttons_layout.addStretch()
         
         # 取消按钮
         cancel_btn = QPushButton("取消")
-        cancel_btn.setFixedSize(100, 40)
+        cancel_btn.setFixedSize(90, 36)  # 🔧 减小按钮尺寸（100x40 -> 90x36）
         cancel_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #95a5a6, stop:1 #7f8c8d);
                 color: white;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: bold;
-                border-radius: 10px;
+                border-radius: 8px;
                 border: none;
             }
             QPushButton:hover {
@@ -468,15 +470,15 @@ class CreationPanel(QDialog):
         
         # 应用按钮
         apply_btn = QPushButton("应用")
-        apply_btn.setFixedSize(100, 40)
+        apply_btn.setFixedSize(90, 36)  # 🔧 减小按钮尺寸（100x40 -> 90x36）
         apply_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #27ae60, stop:1 #229954);
                 color: white;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: bold;
-                border-radius: 10px;
+                border-radius: 8px;
                 border: none;
             }
             QPushButton:hover {
@@ -487,11 +489,10 @@ class CreationPanel(QDialog):
         apply_btn.clicked.connect(self.apply_params)
         
         buttons_layout.addWidget(cancel_btn)
-        buttons_layout.addSpacing(20)
         buttons_layout.addWidget(apply_btn)
         buttons_layout.addStretch()
         
-        main_layout.addSpacing(10)
+        main_layout.addSpacing(5)  # 🔧 减小底部间距（10->5）
         main_layout.addLayout(buttons_layout)
     
     def _handle_wheel(self, event, slider, min_val, max_val, step):
@@ -627,6 +628,57 @@ class CreationPanel(QDialog):
             )
             return
         
+        # 保存参数到配置文件（自动持久化）
+        print("[创作面板] 保存参数到配置...")
+        save_sd_params(params)
+        
         # 发送信号
         self.params_applied.emit(params)
         self.accept()
+    
+    def count_words(self, text: str) -> int:
+        """计算单词数量"""
+        if not text:
+            return 0
+        # 移除逗号，然后按空格分割
+        return len(text.replace(',', '').split())
+    
+    def update_positive_word_count(self):
+        """更新正向提示词的单词计数"""
+        text = self.prompt_edit.toPlainText()
+        word_count = self.count_words(text)
+        
+        # 根据数量设置颜色
+        if word_count > 75:
+            color = "#e74c3c"  # 红色，超出限制
+        elif word_count > 60:
+            color = "#f39c12"  # 橙色，接近限制
+        else:
+            color = "#7f8c8d"  # 灰色，正常
+        
+        self.positive_word_count.setText(f"{word_count}/75")
+        self.positive_word_count.setStyleSheet(f"""
+            font-weight: bold;
+            color: {color};
+            font-size: 12px;
+        """)
+    
+    def update_negative_word_count(self):
+        """更新负向提示词的单词计数"""
+        text = self.negative_prompt_edit.toPlainText()
+        word_count = self.count_words(text)
+        
+        # 根据数量设置颜色
+        if word_count > 75:
+            color = "#e74c3c"  # 红色，超出限制
+        elif word_count > 60:
+            color = "#f39c12"  # 橙色，接近限制
+        else:
+            color = "#7f8c8d"  # 灰色，正常
+        
+        self.negative_word_count.setText(f"{word_count}/75")
+        self.negative_word_count.setStyleSheet(f"""
+            font-weight: bold;
+            color: {color};
+            font-size: 12px;
+        """)

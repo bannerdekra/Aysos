@@ -440,7 +440,7 @@ class ChatArea(QWidget):
     
     def update_generation_progress(self, progress: float, status: str):
         """
-        更新图片生成进度（在thinking bubble旁边显示）
+        更新图片生成进度（在thinking bubble旁边显示 - 增强可视性）
         
         Args:
             progress: 进度值 0.0-1.0
@@ -455,12 +455,16 @@ class ChatArea(QWidget):
             self.current_progress_label = QLabel()
             self.current_progress_label.setStyleSheet("""
                 QLabel {
-                    color: #666;
-                    font-size: 13px;
-                    padding: 5px 10px;
-                    background: rgba(100, 149, 237, 0.1);
-                    border-radius: 8px;
-                    margin-left: 10px;
+                    color: #2c3e50;
+                    font-size: 14px;
+                    font-weight: bold;
+                    padding: 10px 15px;
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 rgba(100, 149, 237, 0.3),
+                        stop:1 rgba(100, 149, 237, 0.1));
+                    border: 2px solid rgba(100, 149, 237, 0.5);
+                    border-radius: 10px;
+                    margin-left: 15px;
                 }
             """)
             # 将进度标签添加到thinking容器的布局中
@@ -479,9 +483,31 @@ class ChatArea(QWidget):
                 right_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
                 container_layout.addItem(right_spacer)
         
-        # 更新进度文本
+        # 根据状态添加图标
+        status_icons = {
+            "正在生成提示词": "📝",
+            "连接 SD WebUI": "🔌",
+            "正在生成图片": "🎨",
+            "处理完成": "✅",
+            "生成中": "🎨",
+            "准备中": "⚙️",
+            "上传中": "📤"
+        }
+        
+        # 匹配图标
+        icon = ""
+        for key, value in status_icons.items():
+            if key in status:
+                icon = value
+                break
+        
+        # 如果没有匹配到，默认使用处理图标
+        if not icon:
+            icon = "⏳"
+        
+        # 更新进度文本（带图标）
         percentage = int(progress * 100)
-        self.current_progress_label.setText(f"{status} {percentage}%")
+        self.current_progress_label.setText(f"{icon} {status} {percentage}%")
         
         # 滚动到底部
         self._scroll_to_bottom_precisely()

@@ -1626,8 +1626,8 @@ class FileModeDialog(QDialog):
         button_layout.setSpacing(10)
         
         # 临时分析按钮
-        self.temp_btn = QPushButton("📄 临时分析")
-        self.temp_btn.setFixedHeight(40)
+        self.temp_btn = QPushButton("📄 临时分析\n(仅单次对话)")
+        self.temp_btn.setFixedHeight(50)
         self.temp_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4A90E2;
@@ -1647,8 +1647,8 @@ class FileModeDialog(QDialog):
         button_layout.addWidget(self.temp_btn)
         
         # 后续引用按钮
-        self.persist_btn = QPushButton("🔗 后续引用")
-        self.persist_btn.setFixedHeight(40)
+        self.persist_btn = QPushButton("🔗 后续引用\n(仅保存48小时)")
+        self.persist_btn.setFixedHeight(50)
         self.persist_btn.setStyleSheet("""
             QPushButton {
                 background-color: #50C878;
