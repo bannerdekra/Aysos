@@ -10,13 +10,13 @@ try:
     try:
         from google import genai
         GENAI_AVAILABLE = True
-        print("✅ Google GenAI SDK (genai) 已加载")
+        print("[OK] Google GenAI SDK (genai) 已加载")
     except ImportError:
         import google.generativeai as genai
         GENAI_AVAILABLE = True
-        print("✅ Google GenAI SDK (generativeai) 已加载")
+        print("[OK] Google GenAI SDK (generativeai) 已加载")
 except ImportError:
-    print("❌ Google GenAI SDK 未安装")
+    print("[ERROR] Google GenAI SDK 未安装")
     GENAI_AVAILABLE = False
 
 from api_config import (
@@ -107,9 +107,10 @@ def get_ai_reply(messages, conversation_id=None, files=None, is_one_time_attachm
         return f"Error calling {provider_name} API: {str(e)}"
 
 
-def _call_deepseek_api(messages, api_key, api_url, model_name, enable_tools=True):
+def _call_deepseek_api(messages, api_key, api_url, model_name, enable_tools=True, max_iterations=5):
     """
     Call DeepSeek API (OpenAI-compatible format) with Function Calling support.
+    支持多轮工具调用迭代，直到 AI 给出最终答案。
     
     Args:
         messages: 消息列表
@@ -117,87 +118,125 @@ def _call_deepseek_api(messages, api_key, api_url, model_name, enable_tools=True
         api_url: API地址
         model_name: 模型名称
         enable_tools: 是否启用工具调用
+        max_iterations: 最大工具调用迭代次数（防止无限循环）
     
     Returns:
         str: AI回复文本
     """
-    # 准备基础 payload
-    payload = {
-        "messages": messages
-    }
-    if model_name:
-        payload["model"] = model_name
+    try:
+        # 准备基础 payload
+        payload = {
+            "messages": messages.copy()  # 使用副本避免修改原始消息
+        }
+        if model_name:
+            payload["model"] = model_name
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    # 如果启用工具且工具执行器可用，添加工具定义
-    if enable_tools and TOOL_EXECUTOR_AVAILABLE:
-        try:
-            tool_schemas = get_all_tool_schemas()
-            if tool_schemas:
-                payload["tools"] = tool_schemas
-                print(f"[DeepSeek] 📦 已添加 {len(tool_schemas)} 个工具")
-        except Exception as e:
-            print(f"[DeepSeek] ⚠️ 工具Schema获取失败: {e}")
-    
-    # 第一次API调用（可能返回工具调用指令）
-    print("[DeepSeek] 📤 第一次API调用...")
-    response = requests.post(api_url, json=payload, headers=headers, timeout=120)
-    response.raise_for_status()
-    data = response.json()
-    
-    message = data['choices'][0]['message']
-    
-    # 检查是否有工具调用
-    if 'tool_calls' in message and message['tool_calls'] and TOOL_EXECUTOR_AVAILABLE:
-        print(f"[DeepSeek] 🔧 检测到 {len(message['tool_calls'])} 个工具调用")
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
         
-        # 执行工具调用
-        tool_executor = get_tool_executor()
-        tool_results = tool_executor.execute_tool_calls(message['tool_calls'])
+        # 如果启用工具且工具执行器可用，添加工具定义和引导提示
+        tool_schemas = None
+        if enable_tools and TOOL_EXECUTOR_AVAILABLE:
+            try:
+                tool_schemas = get_all_tool_schemas()
+                if tool_schemas:
+                    payload["tools"] = tool_schemas
+                    print(f"[DeepSeek] 📦 已添加 {len(tool_schemas)} 个工具")
+                    
+                    # 🔧 在系统消息中添加工具使用引导
+                    if not any(msg.get('role') == 'system' for msg in payload["messages"]):
+                        payload["messages"].insert(0, {
+                            "role": "system",
+                            "content": (
+                                "你是一个智能助手，拥有搜索工具。\n"
+                                "重要规则：\n"
+                                "1. 当用户询问你不了解的信息（如实时新闻、天气、股票等）时，必须主动调用搜索工具\n"
+                                "2. 如果第一次搜索结果不准确，继续调用工具直到获得正确信息\n"
+                                "3. 只有在确认获得准确答案后才回复用户\n"
+                                "4. 优先使用工具而非猜测或使用过时信息"
+                            )
+                        })
+            except Exception as e:
+                print(f"[DeepSeek] ⚠️ 工具Schema获取失败: {e}")
         
-        # 构建第二次请求的消息列表
-        messages_with_tools = messages.copy()
+        # 🔧 多轮工具调用循环
+        iteration = 0
+        conversation_messages = payload["messages"].copy()
         
-        # 添加助手的工具调用消息
-        messages_with_tools.append({
-            "role": "assistant",
-            "content": message.get('content', ''),
-            "tool_calls": message['tool_calls']
-        })
-        
-        # 添加工具执行结果
-        for tool_result in tool_results:
-            if tool_result['success']:
-                messages_with_tools.append({
-                    "role": "tool",
-                    "tool_call_id": tool_result.get('tool_call_id', ''),
-                    "name": tool_result['tool_name'],
-                    "content": tool_result['result_json']
+        while iteration < max_iterations:
+            iteration += 1
+            print(f"[DeepSeek] 📤 第 {iteration} 轮 API 调用...")
+            
+            # 更新 payload 消息
+            payload["messages"] = conversation_messages
+            
+            # API 调用
+            response = requests.post(api_url, json=payload, headers=headers, timeout=120)
+            response.raise_for_status()
+            data = response.json()
+            
+            message = data['choices'][0]['message']
+            
+            # 检查是否有工具调用
+            if 'tool_calls' in message and message['tool_calls'] and TOOL_EXECUTOR_AVAILABLE:
+                print(f"[DeepSeek] 🔧 第 {iteration} 轮检测到 {len(message['tool_calls'])} 个工具调用")
+                
+                # 执行工具调用
+                tool_executor = get_tool_executor()
+                tool_results = tool_executor.execute_tool_calls(message['tool_calls'])
+                
+                # 添加助手的工具调用消息
+                conversation_messages.append({
+                    "role": "assistant",
+                    "content": message.get('content', ''),
+                    "tool_calls": message['tool_calls']
                 })
-            else:
-                messages_with_tools.append({
-                    "role": "tool",
-                    "tool_call_id": tool_result.get('tool_call_id', ''),
-                    "name": tool_result.get('tool_name', 'unknown'),
-                    "content": json.dumps({"error": tool_result['error']}, ensure_ascii=False)
-                })
+                
+                # 添加工具执行结果
+                for tool_result in tool_results:
+                    if tool_result['success']:
+                        conversation_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_result.get('tool_call_id', ''),
+                            "name": tool_result['tool_name'],
+                            "content": tool_result['result_json']
+                        })
+                    else:
+                        conversation_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_result.get('tool_call_id', ''),
+                            "name": tool_result.get('tool_name', 'unknown'),
+                            "content": json.dumps({"error": tool_result['error']}, ensure_ascii=False)
+                        })
+                
+                # 继续下一轮迭代（AI 会基于工具结果决定是否继续调用工具）
+                print(f"[DeepSeek] 🔄 工具执行完成，等待 AI 下一步决策...")
+                continue
+            
+            # 没有工具调用，返回最终结果
+            final_content = message.get('content', '')
+            if iteration > 1:
+                print(f"[DeepSeek] ✅ 经过 {iteration} 轮迭代，获得最终答案")
+            return final_content
         
-        # 第二次API调用（带工具结果）
-        print("[DeepSeek] 📤 第二次API调用（带工具结果）...")
-        payload["messages"] = messages_with_tools
+        # 达到最大迭代次数
+        print(f"[DeepSeek] ⚠️ 达到最大迭代次数 ({max_iterations})，返回当前结果")
+        return message.get('content', '') if message else "抱歉，处理超时，请重试。"
         
-        response = requests.post(api_url, json=payload, headers=headers, timeout=120)
-        response.raise_for_status()
-        data = response.json()
-        
-        return data['choices'][0]['message']['content']
-    
-    # 没有工具调用，直接返回结果
-    return message.get('content', '')
+    except requests.exceptions.Timeout:
+        print(f"[DeepSeek] ❌ 请求超时")
+        return "Error: API 请求超时，请稍后重试。"
+    except requests.exceptions.RequestException as e:
+        print(f"[DeepSeek] ❌ 网络请求失败: {e}")
+        return f"Error: 网络请求失败 - {str(e)}"
+    except KeyError as e:
+        print(f"[DeepSeek] ❌ API 响应格式错误: {e}")
+        return f"Error: API 响应格式异常 - {str(e)}"
+    except Exception as e:
+        print(f"[DeepSeek] ❌ 未知错误: {e}")
+        return f"Error: 处理失败 - {str(e)}"
 
 
 def _apply_proxy_policy(provider_name: str) -> None:

@@ -20,22 +20,85 @@ class ToolExecutor:
         self._register_default_tools()
     
     def _register_default_tools(self):
-        """注册默认工具"""
-        # 注册百度搜索工具
+        """注册默认工具（根据配置动态注册搜索引擎）"""
+        # 获取搜索引擎配置
         try:
-            from baidu_searcher import get_baidu_searcher, BaiduSearcher
+            from search_engine_config import get_search_engine_config
+            search_config = get_search_engine_config()
+            enabled_engines = search_config.get_enabled_engines()
+            primary_engine = search_config.get_primary_engine()
             
-            searcher = get_baidu_searcher()
-            self.register_tool(
-                name="baidu_search",
-                function=searcher,
-                schema=BaiduSearcher.TOOL_SCHEMA,
-                description="百度搜索 - 获取实时网络信息"
-            )
-            print("[工具执行器] ✅ 已注册: baidu_search")
+            print(f"[工具执行器] 🔍 搜索引擎配置: 启用 {enabled_engines}, 优先 {primary_engine}")
             
         except Exception as e:
-            print(f"[工具执行器] ⚠️ 百度搜索工具注册失败: {e}")
+            print(f"[工具执行器] ⚠️ 加载搜索引擎配置失败: {e}，使用默认配置")
+            enabled_engines = ["baidu", "google"]
+            primary_engine = "baidu"
+        
+        # 按优先级顺序注册搜索工具
+        # 先注册优先引擎，这样在工具列表中会排在前面
+        engines_to_register = []
+        if primary_engine in enabled_engines:
+            engines_to_register.append(primary_engine)
+        
+        # 添加其他启用的引擎
+        for engine in enabled_engines:
+            if engine not in engines_to_register:
+                engines_to_register.append(engine)
+        
+        # 注册百度搜索工具
+        if "baidu" in engines_to_register:
+            try:
+                from baidu_searcher import get_baidu_searcher
+                
+                searcher = get_baidu_searcher()
+                priority_tag = " [优先]" if primary_engine == "baidu" else ""
+                self.register_tool(
+                    name="baidu_search",
+                    function=searcher.search,
+                    schema=searcher.get_tool_schema(),
+                    description=f"百度搜索 - 获取实时网络信息（中文内容优先）{priority_tag}"
+                )
+                print(f"[工具执行器] ✅ 已注册: baidu_search{priority_tag}")
+                
+            except Exception as e:
+                print(f"[工具执行器] ⚠️ 百度搜索工具注册失败: {e}")
+        
+        # 注册 Google 搜索工具
+        if "google" in engines_to_register:
+            try:
+                from google_searcher import get_google_searcher
+                
+                google_searcher = get_google_searcher()
+                priority_tag = " [优先]" if primary_engine == "google" else ""
+                self.register_tool(
+                    name="google_search",
+                    function=google_searcher.search,
+                    schema=google_searcher.get_tool_schema(),
+                    description=f"Google搜索 - 获取国际信息和英文内容{priority_tag}"
+                )
+                print(f"[工具执行器] ✅ 已注册: google_search{priority_tag}")
+                
+            except Exception as e:
+                print(f"[工具执行器] ⚠️ Google搜索工具注册失败: {e}")
+        
+        # 注册文档解析工具
+        try:
+            from document_parser import (
+                get_document_parser_tool_schema,
+                execute_document_parser_tool
+            )
+            
+            self.register_tool(
+                name="read_document",
+                function=execute_document_parser_tool,
+                schema=get_document_parser_tool_schema(),
+                description="文档解析工具 - 读取PDF、图片(OCR)、文本文件内容"
+            )
+            print("[工具执行器] ✅ 已注册: read_document (文档解析)")
+            
+        except Exception as e:
+            print(f"[工具执行器] ⚠️ 文档解析工具注册失败: {e}")
     
     def register_tool(
         self,

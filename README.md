@@ -1,7 +1,7 @@
-# 版本号 V1.0.8
+# 版本号 V1.0.9
 # Agent 项目
 
-这是一个包含开发工具的个人助手项目，支持 Deepseek、Gemini 等多模型，自动代理穿透防火墙，气泡布局自适应，支持多模态文件上传（图片、PDF、视频），集成 Stable Diffusion 本地绘画功能，**新增 LLM Function Calling 框架，支持动态调用外部工具（如百度搜索）获取实时信息**。
+这是一个包含开发工具的个人助手项目，支持 Deepseek、Gemini 等多模型，自动代理穿透防火墙，气泡布局自适应，支持多模态文件上传（图片、PDF、视频），集成 Stable Diffusion 本地绘画功能，**新增 LLM Function Calling 框架，支持动态调用外部工具（如百度搜索）获取实时信息**，**支持视频背景动态壁纸功能**。
 
 # 开发准则（暂）
 
@@ -18,18 +18,18 @@ LOG 例子：
 5.无论是否完成开发工作每日必须存档提交，github库的存档是可以选择性删除的只是一个保存平台，方便取用最新的开发版本
 6.不允许同时编辑项目！！！需沟通协商各自的开发时间，确保每一时刻只有一个人在编辑该项目，每次编辑开始时都应该pull或者clone仓库再开始开发，确保项目进度统一
 
-## 项目结构（2025-10-16）
+## 项目结构（2025-10-17）
 
 - `SoftWare/Script/` - 所有脚本文件
   - `main.py` - 主程序
   - `api_client.py` - AI API调用（支持 Gemini/DeepSeek，官方SDK集成，**Function Calling 支持**）
   - `api_config.py` - API配置与自动代理设置
   - `model_registry.py` - **[2025-10-16]** AI模型统一配置中心（DeepSeek、Gemini、Claude、GPT-4o预置）
-  - `baidu_searcher.py` - **[2025-10-16 新增]** 百度千帆搜索工具封装（270行）
-  - `tool_executor.py` - **[2025-10-16 新增]** 通用工具执行器和注册管理（280行）
+  - `baidu_searcher.py` - **[2025-10-16]** 百度千帆搜索工具封装（270行）
+  - `tool_executor.py` - **[2025-10-16]** 通用工具执行器和注册管理（280行）
   - `chat_area.py` - 聊天区域，气泡布局优化，支持气泡删除，文件引用显示，SD生成进度实时显示
   - `bubble_copy_handler.py` - 对话气泡复制与删除信号
-  - `chat_ui.py` - 聊天界面UI
+  - `chat_ui.py` - 聊天界面UI，**[2025-10-17] 支持视频背景播放**
   - `database_manager.py` - 数据库/DSN管理
   - `dialogs.py` - 软件弹窗类，文件上传模式提示增强
   - `file_manager.py` - 本地对话管理，支持消息删除
@@ -41,27 +41,39 @@ LOG 例子：
   - `responsive_switch.py` - 响应式切换
   - `sidebar.py` - 任务管理栏
   - `storage_config.py` - DSN逻辑切换，支持文件存储删除
-  - `test_attachment_recognition.py` - 附件识别测试
-  - `theme_manager.py` - 主题管理
+  - `theme_manager.py` - 主题管理，**[2025-10-17] 支持视频背景切换**
   - `theme_settings.json` - 主题配置
 - `SoftWare/Image/` - 软件资源
   - `Backgroud/` - UI背景图片
   - `loading/` - Agent回答加载中GIF
 - `SoftWare/Icon/` - 软件封装图标
-- `TOOL/` - 开发工具与辅助脚本
-  - `dev_notebook.py` - 开发记事本工具
-  - `test_function_calling.py` - **[2025-10-16 新增]** Function Calling 测试套件（260行）
   - `sentence/summary.md` - 更新内容摘要
-  - `test_fixes.py` - 自动化修复测试
-  - `test_file_upload.py` - 附件上传测试
+- `TOOL/` - **[2025-10-17]** 诊断与测试工具
+  - `test_video_fixes.py` - 视频背景修复测试（完整版）
+  - `test_video_fixes_simplified.py` - 视频背景修复测试（简化版）
+  - `simple_video_test.py` / `standalone_video_test.py` / `minimal_video_test.py` - 视频组件基础测试
 - `LOG/` - 日志与说明
-  - `UPDATE_2025-09-28.md` / `UPDATE_2025-09-30.md` / `UPDATE_2025-10-05.md` / `UPDATE_2025-10-08.md` / `UPDATE_2025-10-09.md` / `UPDATE_2025-10-10.md` / `UPDATE_2025-10-11.md` / `UPDATE_2025-10-15.md` / `UPDATE_2025-10-16.md` - 每日更新日志
+  - `UPDATE_2025-09-28.md` / `UPDATE_2025-09-30.md` / `UPDATE_2025-10-05.md` / `UPDATE_2025-10-08.md` / `UPDATE_2025-10-09.md` / `UPDATE_2025-10-10.md` / `UPDATE_2025-10-11.md` / `UPDATE_2025-10-15.md` / `UPDATE_2025-10-16.md` / **`UPDATE_2025-10-17.md`** - 每日更新日志
   - `README.md` - 发布说明
-- `UPDATE_2025-10-16_function_calling.md` - **[新增]** Function Calling 功能详细文档
-- `GEMINI_VIDEO_SUPPORT.md` - Gemini 视频理解功能文档
-- `test_video_support.py` - 视频支持测试套件
 
-## 功能特性（2025-10-16）
+## 功能特性（2025-10-17）
+
+### 🎬 动态视频背景（2025-10-17 新增）
+- **视频壁纸支持**：使用视频文件作为UI背景
+  - 支持格式：MP4, AVI, MOV, MKV, WebM
+  - 自动循环播放，静音模式
+  - 与静态图片背景无缝切换
+- **技术架构**：
+  - 基于 PyQt6 QMediaPlayer + FFmpeg 7.1.1 后端
+  - 独立视频层设计，UI组件自动位于视频上方
+  - 智能文件类型检测，自动选择处理方式
+- **设置方式**：
+  - 点击"设置" → "背景设置" → 选择视频文件
+  - 支持实时切换，无需重启
+- **已知限制**：
+  - ⚠️ 需要系统多媒体后端支持（Windows: Media Feature Pack, Linux: GStreamer）
+  - ⚠️ 推荐使用 H.264 编码的 MP4 文件
+  - ⚠️ 视频解码会占用 CPU/GPU 资源
 
 ### 🆕 LLM Function Calling（2025-10-16 重大更新）
 - **🤖 智能工具调用**：AI 自动判断何时需要调用外部工具
@@ -148,7 +160,10 @@ LOG 例子：
 
 ## 未来开发计划
 
-### 短期计划
+### 短期计划（优先级排序）
+- 🔴 **[优先级1] 修复任务栏交互Bug**：重构 `file_manager.py` 消息解析逻辑，避免内容刷新为标题
+- 🟡 **[优先级2] 视频背景优化**：添加视频预览缩略图、播放速度调整、淡入淡出效果
+- 🟢 **[优先级3] 多媒体后端检测**：启动时检测 FFmpeg 可用性，提供用户友好的错误提示
 - 集成model_registry.py到API客户端
 - 为Claude、GPT-4o实现完整API调用逻辑
 - SD参数预设功能（保存/加载多套常用参数）
@@ -158,6 +173,10 @@ LOG 例子：
 - 支持音频文件上传与语音识别
 
 ### 中期计划
+- 动态壁纸商店（预置视频背景包）
+- 视频背景自定义过滤器（模糊、亮度调整）
+- 支持 GIF 动图作为背景
+- 背景音乐播放器（独立于视频背景）
 - 文件管理面板（查看已上传文件，管理生命周期）
 - 多语言支持（UI国际化）
 - 插件系统框架
@@ -166,6 +185,9 @@ LOG 例子：
 - 多模态文件混合分析优化
 
 ### 长期计划
+- WebGL 动态背景（粒子效果、波浪效果）
+- 背景主题一键切换（预设多套方案）
+- 社区背景分享平台
 - 本地模型支持（Ollama、LM Studio等）
 - 协作功能，多用户对话
 - 移动端适配
@@ -174,13 +196,59 @@ LOG 例子：
 
 - **前端框架**：PyQt6
 - **AI SDK**：Google GenAI SDK, OpenAI SDK
+- **多媒体**：PyQt6 QtMultimedia (FFmpeg 7.1.1 后端)
 - **数据库**：SQLite（本地）/ ODBC（远程）
 - **多模态**：Gemini File API, Vision API
 - **网络**：自动代理配置，gRPC 认证隔离
 - **测试**：自动化测试套件
 
+## ⚠️ 已知问题（2025-10-17）
+
+### 🔴 高优先级问题
+
+#### 任务栏交互Bug（文件存储模式）
+- **问题描述**：点击Windows任务栏中的Agent图标后，聊天记录中的详细回复会被刷新成简短标题
+- **影响范围**：仅影响文件存储模式，数据库模式不受影响
+- **根本原因**：`file_manager.py` 的消息解析逻辑未正确区分标题和内容
+- **临时解决方案**：
+  1. 使用数据库存储模式（推荐）
+  2. 避免在获得长回复后最小化窗口
+  3. 创建新对话重新提问
+- **修复计划**：V1.0.10 预期修复，重构文件格式和解析逻辑
+
+### 🟡 中优先级问题
+
+#### 视频背景多媒体后端依赖
+- **问题描述**：部分系统缺少多媒体后端，导致视频无法播放
+- **影响范围**：Windows 精简版、部分 Linux 发行版
+- **解决方案**：
+  - Windows: 安装 Media Feature Pack
+  - Linux: 安装 GStreamer 和编解码器
+  - 使用 H.264 编码的 MP4 文件（兼容性最佳）
+- **修复计划**：V1.0.10 添加后端检测和用户提示
+
+#### 视频背景性能影响
+- **问题描述**：视频解码占用 CPU/GPU 资源，低配设备可能卡顿
+- **建议**：使用分辨率较低的视频（720p），避免高帧率视频（推荐30fps）
+- **修复计划**：中期添加视频质量自动调整功能
+
+### 🟢 低优先级问题
+
+#### PyInstaller 打包缺失 DLL
+- **问题描述**：打包后的程序可能缺少 Qt Multimedia DLL
+- **解决方案**：在 .spec 文件中手动添加 `qtvideodecoder.dll`, `qtmedia.dll` 等
+- **修复计划**：提供完整的打包配置模板
+
 ## 📝 更新日志
 
+- **2025-10-17 (v1.0.9)**：🎬 **动态视频背景功能 + 任务栏Bug记录**
+  - ✅ 新增视频背景播放功能（MP4/AVI/MOV/MKV），基于 PyQt6 QMediaPlayer
+  - ✅ 独立视频层架构，支持循环播放、自动静音、层级管理
+  - ✅ 关键修复：样式表清除机制，避免CSS覆盖视频组件
+  - ✅ 智能文件类型检测，自动区分视频/图片处理逻辑
+  - ✅ 新增6个诊断测试工具，验证视频功能完整性
+  - ⚠️ 记录任务栏交互Bug（文件存储模式下消息内容刷新为标题），解决方案方向已明确
+  - 📚 详细文档：`UPDATE_2025-10-17.md`（10步初始化流程、故障排查指南）
 - **2025-10-16 (v1.3.1)**：🔧 **Function Calling 增强：高级搜索参数**
   - 🆕 新增 `search_recency_filter`：时效性过滤（day/week/month/year）
   - 🆕 新增 `site_filter`：网站限定（支持最多20个权威站点）

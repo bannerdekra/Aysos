@@ -26,6 +26,14 @@ class BubbleLabel(QLabel):
         self.setText(text)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.side = side
+        
+        # 启用文本选择和交互
+        self.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | 
+            Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        # 设置鼠标样式为文本光标（选择时）
+        self.setCursor(Qt.CursorShape.IBeamCursor)
 
 # 创建带复制功能的气泡类
 CopyableBubbleLabel = create_copyable_bubble_class(BubbleLabel)

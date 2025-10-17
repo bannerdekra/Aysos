@@ -59,6 +59,27 @@ class BaiduSearcher:
             print("[百度搜索] ⚠️ 环境变量 'Baidu Search-APIKEY' 未设置")
         else:
             print("[百度搜索] ✅ API Key 已加载")
+        
+        # 🔧 自动禁用代理（百度搜索是国内服务）
+        self._disable_proxy()
+    
+    def _disable_proxy(self):
+        """禁用代理"""
+        try:
+            from api_config import disable_proxy
+            disable_proxy()
+            print("[百度搜索] 🚫 已禁用代理（国内服务）")
+        except Exception as e:
+            print(f"[百度搜索] ⚠️ 代理配置失败: {e}")
+    
+    def get_tool_schema(self) -> Dict:
+        """
+        获取工具的 Schema 定义
+        
+        Returns:
+            Dict: 工具 Schema
+        """
+        return self.TOOL_SCHEMA
     
     def search(self, query: str, top_k: int = 5, 
                search_recency_filter: Optional[str] = None,

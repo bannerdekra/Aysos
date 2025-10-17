@@ -637,6 +637,10 @@ class InputBar(QWidget):
         # 新增：搜索文本功能
         search_text_action = QAction("搜索文本", self)
         search_text_action.triggered.connect(self.show_search_dialog)
+        
+        # 新增：切换搜索引擎
+        search_engine_action = QAction("切换搜索引擎", self)
+        search_engine_action.triggered.connect(self.show_search_engine_dialog)
 
         clear_action = QAction("清除提示词", self)
         clear_action.triggered.connect(lambda: self.on_prompt_action_triggered(None, "", False))
@@ -664,6 +668,7 @@ class InputBar(QWidget):
         
         menu.addMenu(prompt_menu)
         menu.addAction(search_text_action)  # 添加搜索文本菜单项
+        menu.addAction(search_engine_action)  # 添加切换搜索引擎菜单项
         menu.addAction(clear_history_action)
         
         
@@ -701,6 +706,12 @@ class InputBar(QWidget):
     def show_search_dialog(self):
         """显示搜索对话框"""
         self.search_text_signal.emit()
+    
+    def show_search_engine_dialog(self):
+        """显示搜索引擎切换对话框"""
+        from dialogs import SearchEngineDialog
+        dialog = SearchEngineDialog(self)
+        dialog.exec()
 
     def show_settings_dialog(self):
         """显示设置对话框"""

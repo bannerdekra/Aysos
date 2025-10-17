@@ -392,28 +392,79 @@ class ThemeManager(QObject):
             pass
     
     def apply_background(self):
-        """应用自定义背景"""
-        if not self.main_window or not self.custom_background_path:
+        """应用自定义背景（支持图片和视频）"""
+        if not self.main_window:
             return
-            
-        # 检查文件是否存在
-        if not os.path.exists(self.custom_background_path):
-            print(f"背景文件不存在: {self.custom_background_path}")
+        
+        path = self.custom_background_path
+        
+        # 路径为空或文件不存在时，停止所有背景
+        if not path or not os.path.exists(path):
+            print("[主题] 清除背景")
+            if hasattr(self.main_window, 'stop_video_background'):
+                self.main_window.stop_video_background()
+            if hasattr(self.main_window, 'set_background_static'):
+                self.main_window.set_background_static(None)
             return
-            
-        # 更新主窗口的背景图片
+        
+        # 检查是否为视频文件
+        video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm')
+        is_video = path.lower().endswith(video_extensions)
+        
         try:
-            from PyQt6.QtGui import QPixmap
-            new_pixmap = QPixmap(self.custom_background_path)
-            if not new_pixmap.isNull():
-                self.main_window.bg_pixmap = new_pixmap
-                self.main_window.update()  # 触发重绘
-                self.main_window.repaint()  # 强制重绘
-                print(f"背景已更新: {self.custom_background_path}")
+            if is_video:
+                print(f"[主题] 🎬 切换到视频背景模式")
+                print(f"[主题]    文件: {path}")
+                print(f"[主题]    大小: {os.path.getsize(path) / 1024 / 1024:.2f} MB")
+                
+                # 【步骤1】先停止静态背景
+                print(f"[主题] 检查 stop_video_background 方法...")
+                if hasattr(self.main_window, 'stop_video_background'):
+                    print(f"[主题] 调用 stop_video_background...")
+                    self.main_window.stop_video_background()
+                else:
+                    print(f"[主题] ❌ 主窗口缺少 stop_video_background 方法")
+                
+                # 【步骤2】清除静态背景资源
+                print(f"[主题] 清除静态背景资源...")
+                self.main_window.bg_pixmap = None
+                
+                # 【步骤3】启动视频播放
+                print(f"[主题] 检查 play_video_background 方法...")
+                if hasattr(self.main_window, 'play_video_background'):
+                    print(f"[主题] 调用 play_video_background...")
+                    self.main_window.play_video_background(path)
+                    print(f"[主题] ✅ 视频背景已启动")
+                else:
+                    print(f"[主题] ❌ 主窗口不支持 play_video_background 方法")
+                    
             else:
-                print(f"无法加载背景图片: {self.custom_background_path}")
+                print(f"[主题] 🖼️ 切换到图片背景模式")
+                print(f"[主题]    文件: {path}")
+                
+                # 【步骤1】先停止视频播放
+                if hasattr(self.main_window, 'stop_video_background'):
+                    self.main_window.stop_video_background()
+                    print(f"[主题] 视频播放已停止")
+                
+                # 【步骤2】加载静态图片
+                from PyQt6.QtGui import QPixmap
+                new_pixmap = QPixmap(path)
+                if not new_pixmap.isNull():
+                    print(f"[主题] 图片加载成功: {new_pixmap.width()}x{new_pixmap.height()}")
+                    self.main_window.bg_pixmap = new_pixmap
+                    self.main_window.is_video_background = False
+                    self.main_window.update()
+                    self.main_window.repaint()
+                    print(f"[主题] ✅ 图片背景已应用")
+                else:
+                    print(f"[主题] ❌ 无法加载背景图片（文件可能损坏或格式不支持）")
+                    
         except Exception as e:
-            print(f"应用背景失败: {e}")
+            file_type = "视频" if is_video else "图片"
+            print(f"[主题] ❌ 应用{file_type}背景失败: {e}")
+            import traceback
+            traceback.print_exc()
     
     def save_settings(self):
         """保存设置到文件"""

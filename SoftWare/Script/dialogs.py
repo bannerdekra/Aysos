@@ -1286,47 +1286,63 @@ class SettingsDialog(QDialog):
         msg_box.exec()
         
     def choose_background(self):
-        """选择背景图片"""
+        """选择背景图片或视频"""
         file_path, _ = QFileDialog.getOpenFileName(
             self, 
-            "选择背景图片", 
+            "选择背景图片或视频", 
             "", 
-            "图片文件 (*.png *.jpg *.jpeg)"
+            "背景文件 (*.png *.jpg *.jpeg *.mp4 *.avi *.mov *.mkv);;图片文件 (*.png *.jpg *.jpeg);;视频文件 (*.mp4 *.avi *.mov *.mkv)"
         )
         
         if file_path:
-            # 检查图片格式和分辨率
-            if self.validate_background_image(file_path):
+            # 判断文件类型
+            ext = os.path.splitext(file_path)[1].lower()
+            file_type = "视频" if ext in ['.mp4', '.avi', '.mov', '.mkv'] else "图片"
+            
+            # 检查文件格式和分辨率
+            if self.validate_background_file(file_path):
                 self.bg_path_label.setText(f"已选择: {os.path.basename(file_path)}")
                 if self.theme_manager:
                     self.theme_manager.set_custom_background(file_path)
                     # 立即应用背景并刷新UI
                     QTimer.singleShot(100, self.theme_manager.apply_background)
-                print(f"背景已设置: {file_path}")
-                QMessageBox.information(self, "背景设置", f"背景已更新为:\n{os.path.basename(file_path)}")
+                
+                print(f"✅ 背景{file_type}已设置: {file_path}")
+                QMessageBox.information(self, "背景设置", f"✅ 背景{file_type}已更新\n\n文件: {os.path.basename(file_path)}\n类型: {file_type}文件")
             else:
-                QMessageBox.warning(self, "格式错误", "只支持1920*1080分辨率下的png或jpg文件哦！")
+                print(f"❌ 背景{file_type}验证失败: {file_path}")
+                if ext in ['.mp4', '.avi', '.mov', '.mkv']:
+                    QMessageBox.warning(self, "格式错误", f"❌ 无法加载视频文件\n\n请确保:\n1. 视频文件未损坏\n2. 视频编码受支持（推荐 H.264）\n3. 文件路径正确")
+                else:
+                    QMessageBox.warning(self, "格式错误", f"❌ 只支持1920×1080分辨率的图片文件\n\n支持格式: PNG, JPG, JPEG")
     
-    def validate_background_image(self, file_path):
-        """验证背景图片格式和分辨率"""
+    def validate_background_file(self, file_path):
+        """验证背景文件格式和分辨率（支持图片和视频）"""
         try:
             # 检查文件扩展名
             ext = os.path.splitext(file_path)[1].lower()
-            if ext not in ['.png', '.jpg', '.jpeg']:
-                return False
             
-            # 使用PIL检查分辨率（如果安装了PIL）
-            if PIL_AVAILABLE:
-                try:
-                    with Image.open(file_path) as img:
-                        width, height = img.size
-                        return width == 1920 and height == 1080
-                except Exception:
-                    return False
-            else:
-                # 如果没有PIL，使用PyQt6检查
-                pixmap = QPixmap(file_path)
-                return pixmap.width() == 1920 and pixmap.height() == 1080
+            # 支持的图片格式
+            if ext in ['.png', '.jpg', '.jpeg']:
+                # 使用PIL检查分辨率（如果安装了PIL）
+                if PIL_AVAILABLE:
+                    try:
+                        with Image.open(file_path) as img:
+                            width, height = img.size
+                            return width == 1920 and height == 1080
+                    except Exception:
+                        return False
+                else:
+                    # 如果PIL不可用，只检查扩展名
+                    return True
+            
+            # 支持的视频格式
+            elif ext in ['.mp4', '.avi', '.mov', '.mkv']:
+                # 视频文件暂不检查分辨率（需要额外依赖）
+                # 建议用户使用1920×1080的视频
+                return True
+            
+            return False
                 
         except Exception:
             return False
@@ -1964,5 +1980,249 @@ class ImagePreviewDialog(QDialog):
                 background-color: transparent;
             }}
         """)
+
+
+class SearchEngineDialog(QDialog):
+    """搜索引擎切换对话框"""
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle('切换搜索引擎')
+        self.setFixedSize(500, 320)
+        
+        # 导入配置管理器
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__)))
+        from search_engine_config import get_search_engine_config
+        
+        self.config = get_search_engine_config()
+        self.checkboxes = {}
+        
+        self.init_ui()
+        self.apply_theme()
+    
+    def init_ui(self):
+        """初始化 UI"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 标题
+        title_label = QLabel("🔍 选择搜索引擎")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 说明文本
+        info_label = QLabel("可以同时启用多个搜索引擎\n先选择的引擎将被优先使用")
+        info_label.setStyleSheet("font-size: 11px; color: #666;")
+        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(info_label)
+        
+        layout.addSpacing(15)
+        
+        # 获取当前配置
+        enabled_engines = self.config.get_enabled_engines()
+        primary_engine = self.config.get_primary_engine()
+        
+        # 🔧 搜索引擎选项 - 并列布局
+        engines_container = QHBoxLayout()
+        engines_container.setSpacing(20)
+        
+        for engine_id, engine_info in self.config.AVAILABLE_ENGINES.items():
+            # 创建每个引擎的垂直容器
+            engine_vbox = QVBoxLayout()
+            engine_vbox.setSpacing(10)
+            
+            # 复选框和引擎名称
+            header_layout = QHBoxLayout()
+            checkbox = QCheckBox()
+            checkbox.setChecked(engine_id in enabled_engines)
+            checkbox.stateChanged.connect(lambda state, eid=engine_id: self.on_engine_toggled(eid, state))
+            self.checkboxes[engine_id] = checkbox
+            
+            icon = engine_info['icon']
+            name = engine_info['name']
+            is_primary = " [优先]" if engine_id == primary_engine else ""
+            
+            name_label = QLabel(f"{icon} <b>{name}</b>{is_primary}")
+            name_label.setTextFormat(Qt.TextFormat.RichText)
+            name_label.setStyleSheet("font-size: 13px;")
+            
+            header_layout.addWidget(checkbox)
+            header_layout.addWidget(name_label)
+            header_layout.addStretch()
+            
+            # 描述文本
+            desc = engine_info['description']
+            desc_label = QLabel(desc)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet("font-size: 10px; color: #888; padding-left: 30px;")
+            
+            engine_vbox.addLayout(header_layout)
+            engine_vbox.addWidget(desc_label)
+            
+            # 添加到水平布局
+            engines_container.addLayout(engine_vbox, 1)
+        
+        layout.addLayout(engines_container)
+        
+        layout.addSpacing(15)
+        
+        # 🔧 当前配置显示 - 增加高度
+        self.status_label = QLabel()
+        self.update_status_label()
+        self.status_label.setWordWrap(True)
+        self.status_label.setMinimumHeight(60)  # 设置最小高度
+        self.status_label.setStyleSheet("""
+            font-size: 11px; 
+            color: #0078d4; 
+            padding: 15px; 
+            background-color: rgba(0,120,212,0.1); 
+            border-radius: 5px;
+            line-height: 1.5;
+        """)
+        layout.addWidget(self.status_label)
+        
+        layout.addStretch()
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        reset_btn = QPushButton("恢复默认")
+        reset_btn.setFixedSize(90, 35)
+        reset_btn.clicked.connect(self.reset_to_default)
+        
+        close_btn = QPushButton("关闭")
+        close_btn.setFixedSize(90, 35)
+        close_btn.clicked.connect(self.accept)
+        
+        button_layout.addWidget(reset_btn)
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+    
+    def on_engine_toggled(self, engine_id: str, state: int):
+        """引擎切换事件"""
+        # 检查是否至少保留一个引擎
+        enabled_count = sum(1 for cb in self.checkboxes.values() if cb.isChecked())
+        
+        if enabled_count == 0:
+            # 至少需要一个引擎
+            self.checkboxes[engine_id].setChecked(True)
+            QMessageBox.warning(self, "提示", "至少需要启用一个搜索引擎")
+            return
+        
+        # 更新配置
+        self.config.toggle_engine(engine_id)
+        self.update_status_label()
+        
+        # 重新加载工具执行器以应用更改
+        try:
+            from tool_executor import get_tool_executor
+            executor = get_tool_executor()
+            # 清除现有工具并重新注册
+            executor._tools.clear()
+            executor._tool_schemas.clear()
+            executor._register_default_tools()
+        except Exception as e:
+            print(f"[搜索引擎对话框] 更新工具失败: {e}")
+    
+    def update_status_label(self):
+        """更新状态标签"""
+        enabled = self.config.get_enabled_engines()
+        primary = self.config.get_primary_engine()
+        
+        enabled_names = [self.config.AVAILABLE_ENGINES[e]['name'] for e in enabled]
+        primary_name = self.config.AVAILABLE_ENGINES[primary]['name']
+        
+        status_text = f"✅ 已启用: {', '.join(enabled_names)}<br>⭐ 优先使用: {primary_name}"
+        self.status_label.setText(status_text)
+    
+    def reset_to_default(self):
+        """恢复默认配置"""
+        reply = QMessageBox.question(
+            self, "确认",
+            "确定要恢复默认配置吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # 恢复默认：启用百度和Google，优先百度
+            self.config.set_engines(["baidu", "google"], "baidu")
+            
+            # 更新复选框状态
+            for engine_id, checkbox in self.checkboxes.items():
+                checkbox.setChecked(engine_id in ["baidu", "google"])
+            
+            self.update_status_label()
+            
+            # 重新加载工具
+            try:
+                from tool_executor import get_tool_executor
+                executor = get_tool_executor()
+                executor._tools.clear()
+                executor._tool_schemas.clear()
+                executor._register_default_tools()
+            except Exception as e:
+                print(f"[搜索引擎对话框] 重置工具失败: {e}")
+    
+    def apply_theme(self):
+        """应用主题"""
+        is_dark = False
+        parent = self.parent()
+        if parent and hasattr(parent, 'theme_manager'):
+            is_dark = getattr(parent.theme_manager, 'dark_mode_enabled', False)
+        
+        bg_color = "#1a1a1a" if is_dark else "#f5f5f5"
+        text_color = "white" if is_dark else "black"
+        btn_bg = "#3a3a3a" if is_dark else "#e0e0e0"
+        btn_hover = "#4a4a4a" if is_dark else "#d0d0d0"
+        
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+            }}
+            QLabel {{
+                color: {text_color};
+            }}
+            QCheckBox {{
+                color: {text_color};
+                spacing: 5px;
+            }}
+            QCheckBox::indicator {{
+                width: 20px;
+                height: 20px;
+                border-radius: 4px;
+                border: 2px solid #999;
+                background-color: {"#2a2a2a" if is_dark else "white"};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #0078d4;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #10b981;
+                border-color: #10b981;
+                image: url(none);
+            }}
+            QCheckBox::indicator:checked::after {{
+                content: "✓";
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {text_color};
+                border: none;
+                border-radius: 5px;
+                padding: 8px 15px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+            }}
+        """)
+
 
 

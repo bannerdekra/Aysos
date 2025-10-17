@@ -1,0 +1,10 @@
+{
+  "enabled_engines": [
+    "baidu"
+  ],
+  "primary_engine": "baidu",
+  "fallback_enabled": false,
+  "selection_order": [
+    "baidu"
+  ]
+}

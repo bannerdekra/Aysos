@@ -41,8 +41,26 @@ class DatabaseManager:
             return False, f"连接失败：{str(ex)}"
     
     def _create_tables(self):
-        # 创建 conversations 表来存储对话信息
-        self.cursor.execute('''
+        """初始化数据表结构，并确保字段类型满足需求"""
+        dbms_name = ""
+        try:
+            dbms_name = (self.conn.getinfo(pyodbc.SQL_DBMS_NAME) or "").strip()
+            if dbms_name:
+                print(f"[数据库] 当前数据源: {dbms_name}")
+        except Exception as exc:
+            print(f"[数据库] 无法获取数据源类型: {exc}")
+        upper_dbms = dbms_name.upper()
+
+        # SQL Server 专用的建表语句在其他数据库会失败，故做防护
+        def execute_safe(sql: str):
+            try:
+                self.cursor.execute(sql)
+            except pyodbc.Error as ex:
+                if 'SQL SERVER' in upper_dbms:
+                    print(f"[数据库] SQL Server 语句执行失败: {ex}")
+
+        # 兼容旧版本：尝试执行 SQL Server 风格的建表/加列语句
+        execute_safe('''
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='conversations' AND xtype='U')
             CREATE TABLE conversations (
                 id VARCHAR(36) PRIMARY KEY,
@@ -50,23 +68,121 @@ class DatabaseManager:
                 created_at DATETIME DEFAULT GETDATE()
             )
         ''')
-        
-        # 修改 messages 表，增加 conversation_id
-        self.cursor.execute('''
+
+        execute_safe('''
             IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'conversation_id' AND Object_ID = Object_ID(N'messages'))
             BEGIN
                 ALTER TABLE messages ADD conversation_id VARCHAR(36);
                 ALTER TABLE messages ADD CONSTRAINT FK_messages_conversations FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE;
             END
         ''')
-        
-        # 【新增】添加附件信息列（存储JSON格式的文件路径列表）
-        self.cursor.execute('''
+
+        execute_safe('''
             IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'files' AND Object_ID = Object_ID(N'messages'))
             BEGIN
                 ALTER TABLE messages ADD files NVARCHAR(MAX);
             END
         ''')
+
+        # 针对非 SQL Server 数据库，使用 ODBC 元数据判断表/列是否存在
+        try:
+            existing_tables = set()
+            for tbl in self.cursor.tables(tableType='TABLE'):
+                if tbl.table_name:
+                    existing_tables.add(tbl.table_name.lower())
+
+            if 'conversations' not in existing_tables:
+                if 'ACCESS' in upper_dbms:
+                    create_sql = '''CREATE TABLE conversations (
+                        id TEXT(36) PRIMARY KEY,
+                        title TEXT(255),
+                        created_at DATETIME
+                    )'''
+                else:
+                    create_sql = '''CREATE TABLE conversations (
+                        id VARCHAR(36) PRIMARY KEY,
+                        title VARCHAR(255) NOT NULL,
+                        created_at DATETIME
+                    )'''
+                print("[数据库] 创建 conversations 表")
+                self.cursor.execute(create_sql)
+
+            if 'messages' not in existing_tables:
+                if 'ACCESS' in upper_dbms:
+                    create_sql = '''CREATE TABLE messages (
+                        id AUTOINCREMENT PRIMARY KEY,
+                        conversation_id TEXT(36),
+                        role TEXT(50),
+                        content LONGTEXT,
+                        files LONGTEXT
+                    )'''
+                else:
+                    create_sql = '''CREATE TABLE messages (
+                        id INTEGER PRIMARY KEY,
+                        conversation_id VARCHAR(36),
+                        role VARCHAR(50),
+                        content TEXT,
+                        files TEXT
+                    )'''
+                print("[数据库] 创建 messages 表")
+                self.cursor.execute(create_sql)
+
+        except pyodbc.Error as ex:
+            print(f"[数据库] 检查/创建表结构时出错: {ex}")
+
+        # 确保 messages.content 字段支持长文本
+        try:
+            content_column = None
+            try:
+                for col in self.cursor.columns(table='messages'):
+                    if col.column_name and col.column_name.lower() == 'content':
+                        content_column = col
+                        break
+            except pyodbc.Error as ex:
+                print(f"[数据库] 无法获取列信息: {ex}")
+
+            if content_column:
+                type_name = (content_column.type_name or '').upper()
+                column_size = content_column.column_size
+                print(f"[数据库检查] messages.content 类型: {type_name}({column_size if column_size else 'MAX'})")
+
+                needs_upgrade = False
+                if type_name in {'VARCHAR', 'NVARCHAR', 'CHAR', 'NCHAR', 'VARWCHAR', 'LONGVARCHAR', 'TEXT'}:
+                    if column_size is None:
+                        # TEXT 但大小未知，保守处理：Access 的 LONGTEXT 会返回 None，此时无需升级
+                        needs_upgrade = type_name not in {'TEXT'} or ('ACCESS' not in upper_dbms)
+                    else:
+                        needs_upgrade = column_size < 2000
+                elif type_name in {'MEMO', 'LONGTEXT', 'NTEXT'}:
+                    needs_upgrade = False
+                else:
+                    needs_upgrade = True
+
+                if needs_upgrade:
+                    if 'ACCESS' in upper_dbms:
+                        alter_sql = 'ALTER TABLE messages ALTER COLUMN content LONGTEXT'
+                    elif 'MYSQL' in upper_dbms:
+                        alter_sql = 'ALTER TABLE messages MODIFY content LONGTEXT'
+                    elif 'SQL SERVER' in upper_dbms or 'MICROSOFT SQL SERVER' in upper_dbms:
+                        alter_sql = 'ALTER TABLE messages ALTER COLUMN content NVARCHAR(MAX)'
+                    elif 'POSTGRE' in upper_dbms:
+                        alter_sql = 'ALTER TABLE messages ALTER COLUMN content TYPE TEXT'
+                    else:
+                        alter_sql = 'ALTER TABLE messages ALTER COLUMN content TEXT'
+
+                    print(f"⚠️ content 字段容量不足，正在执行: {alter_sql}")
+                    try:
+                        self.cursor.execute(alter_sql)
+                        print("[OK] content 字段已升级为长文本类型")
+                    except pyodbc.Error as ex:
+                        print(f"❌ content 字段升级失败: {ex}")
+                else:
+                    print("[OK] content 字段类型符合要求")
+            else:
+                print("⚠️ 未找到 messages.content 列的信息")
+        except Exception as ex:
+            print(f"⚠️ 检查/升级 content 字段发生异常: {ex}")
+
         self.conn.commit()
 
     def create_new_conversation(self, title="新对话"):
@@ -138,52 +254,88 @@ class DatabaseManager:
         return messages
 
     def delete_messages_from_index(self, conversation_id, start_index):
-        """删除从指定索引开始的所有消息"""
-        self.cursor.execute('''
-            DELETE FROM messages 
-            WHERE conversation_id = ? 
-            AND id >= (
-                SELECT id FROM (
-                    SELECT id, ROW_NUMBER() OVER (ORDER BY id ASC) as rn 
-                    FROM messages 
-                    WHERE conversation_id = ?
-                ) as numbered 
-                WHERE rn = ?
+        """删除从指定索引开始的所有消息（优化兼容性 - 两步法）"""
+        try:
+            # 步骤 1: 获取所有消息的 ID 列表（按插入顺序排序）
+            self.cursor.execute(
+                'SELECT id FROM messages WHERE conversation_id = ? ORDER BY id ASC', 
+                (conversation_id,)
             )
-        ''', (conversation_id, conversation_id, start_index + 1))
-        self.conn.commit()
+            all_ids = [row[0] for row in self.cursor.fetchall()]
+            
+            # 检查索引是否有效
+            if start_index >= len(all_ids):
+                print(f"[数据库] 起始索引 {start_index} 超出消息总数 {len(all_ids)}，无需删除")
+                return
+            
+            if start_index < 0:
+                print(f"[数据库] 起始索引 {start_index} 无效（不能为负数）")
+                return
+            
+            # 获取要删除的第一条消息的数据库 ID
+            start_db_id = all_ids[start_index]
+            
+            print(f"[数据库] 准备删除对话 {conversation_id} 从索引 {start_index}（ID={start_db_id}）开始的 {len(all_ids) - start_index} 条消息")
+            
+            # 步骤 2: 删除 ID 大于等于该 ID 的所有消息
+            self.cursor.execute(
+                'DELETE FROM messages WHERE conversation_id = ? AND id >= ?',
+                (conversation_id, start_db_id)
+            )
+            
+            affected_rows = self.cursor.rowcount
+            self.conn.commit()
+            
+            print(f"[数据库] ✅ 已删除 {affected_rows} 条消息（从索引 {start_index} 开始）")
+            
+        except Exception as e:
+            print(f"[数据库] ❌ 删除消息失败: {e}")
+            import traceback
+            traceback.print_exc()
+            self.conn.rollback()
 
     def delete_message_by_index(self, conversation_id, message_index):
-        """删除指定索引的单条消息"""
-        print(f"数据库删除消息: 对话ID={conversation_id}, 索引={message_index}")
-        
-        # 先查看当前消息数量
-        self.cursor.execute('SELECT COUNT(*) FROM messages WHERE conversation_id = ?', (conversation_id,))
-        count = self.cursor.fetchone()[0]
-        print(f"删除前消息数量: {count}")
-        
-        # 使用改进的删除查询
-        self.cursor.execute('''
-            WITH numbered_messages AS (
-                SELECT id, ROW_NUMBER() OVER (ORDER BY id ASC) as rn
-                FROM messages 
-                WHERE conversation_id = ?
+        """删除指定索引的单条消息（优化兼容性 - 两步法）"""
+        try:
+            print(f"[数据库] 删除消息: 对话ID={conversation_id}, 索引={message_index}")
+            
+            # 步骤 1: 获取所有消息的 ID 列表（按插入顺序排序）
+            self.cursor.execute(
+                'SELECT id FROM messages WHERE conversation_id = ? ORDER BY id ASC', 
+                (conversation_id,)
             )
-            DELETE FROM messages 
-            WHERE id = (
-                SELECT id FROM numbered_messages WHERE rn = ?
-            )
-        ''', (conversation_id, message_index + 1))
-        
-        affected_rows = self.cursor.rowcount
-        self.conn.commit()
-        
-        print(f"删除操作影响行数: {affected_rows}")
-        
-        # 再次查看消息数量确认删除成功
-        self.cursor.execute('SELECT COUNT(*) FROM messages WHERE conversation_id = ?', (conversation_id,))
-        new_count = self.cursor.fetchone()[0]
-        print(f"删除后消息数量: {new_count}")
+            all_ids = [row[0] for row in self.cursor.fetchall()]
+            
+            print(f"[数据库] 删除前消息总数: {len(all_ids)}")
+            
+            # 检查索引是否有效
+            if message_index >= len(all_ids) or message_index < 0:
+                print(f"[数据库] ❌ 索引 {message_index} 无效，消息总数 {len(all_ids)}")
+                return
+            
+            # 获取要删除的消息的数据库 ID
+            db_id_to_delete = all_ids[message_index]
+            
+            print(f"[数据库] 准备删除消息 ID={db_id_to_delete}（索引={message_index}）")
+            
+            # 步骤 2: 根据唯一 ID 进行删除
+            self.cursor.execute('DELETE FROM messages WHERE id = ?', (db_id_to_delete,))
+            
+            affected_rows = self.cursor.rowcount
+            self.conn.commit()
+            
+            print(f"[数据库] 删除操作影响行数: {affected_rows}")
+            
+            if affected_rows > 0:
+                print(f"[数据库] ✅ 消息（索引 {message_index}）已成功删除")
+            else:
+                print(f"[数据库] ⚠️ 消息（ID {db_id_to_delete}）删除失败，未影响任何行")
+            
+        except Exception as e:
+            print(f"[数据库] ❌ 删除单条消息失败: {e}")
+            import traceback
+            traceback.print_exc()
+            self.conn.rollback()
 
     def close(self):
         self.conn.close()

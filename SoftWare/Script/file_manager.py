@@ -252,20 +252,11 @@ class FileManager:
                         in_file_section = False
                     continue
                 
-                # 跳过空行
+                # 【修复】空行不结束消息，而是作为内容的一部分保留
                 if not line.strip():
-                    if current_message and content_lines:
-                        current_message['content'] = '\n'.join(content_lines).strip()
-                        # 【新增】添加附件信息
-                        if file_paths:
-                            current_message['files'] = file_paths.copy()
-                        # 只保存非空消息
-                        if current_message['content']:
-                            messages.append(current_message)
-                        current_message = None
-                        content_lines = []
-                        file_paths = []
-                        in_file_section = False
+                    # 如果当前有消息正在处理，保留空行
+                    if current_message and not in_file_section:
+                        content_lines.append('')  # 保留空行
                     continue
                 
                 # 【新增】检查是否是附件部分的开始

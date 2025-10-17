@@ -222,14 +222,26 @@ class ChatManager:
         # 清空当前显示
         self.chat_window.chat_area.clear_chat_history_display()
         
+        # 【调试日志】检查加载的消息内容
+        print(f"\n[DEBUG] 加载对话 {conversation_id} 的消息:")
+        
         # 添加历史消息（包含附件信息）
-        for message in messages:
+        for i, message in enumerate(messages):
+            content = message['content']
+            role = message['role']
+            content_length = len(content)
+            content_preview = content[:80] if content else "(空)"
+            
+            print(f"  消息{i+1} [{role}]: 长度={content_length}, 预览={content_preview}...")
+            
             file_paths = message.get('files', None)  # 获取附件路径（如果有）
             self.chat_window.chat_area.add_history_bubble(
-                message['role'], 
-                message['content'],
+                role, 
+                content,
                 file_paths  # 传递附件路径
             )
+        
+        print(f"[DEBUG] 加载完成，共 {len(messages)} 条消息\n")
     
     def _sync_gemini_context(self, conversation_id, messages):
         """同步 Gemini 上下文历史"""
@@ -463,14 +475,28 @@ class ChatManager:
         if self.current_worker is None:
             print("请求已取消，忽略API响应")
             return
+        
+        # 🔧 修复：检查 response 是否为 None
+        if response is None:
+            print("⚠️ API 返回 None，使用默认错误消息")
+            response = "Error: API 调用失败，未返回有效响应。请检查网络连接或搜索引擎配置。"
             
-        print(f"收到API回复: {response[:100]}...")
+        print(f"收到API回复: {response[:100] if response else '(空响应)'}...")
         
         # 移除thinking动画并添加回复
         self.chat_window.chat_area.update_chat_display(response)
         
+        # 【调试】保存前检查内容长度
+        print(f"[DEBUG] 准备保存 assistant 消息，长度={len(response)}, 预览={response[:80]}...")
+        
         # 保存AI回复到存储
         self.storage.add_message(self.current_conversation_id, 'assistant', response)
+        
+        # 【调试】验证保存后的内容
+        saved_messages = self.storage.get_history(self.current_conversation_id)
+        if saved_messages:
+            last_msg = saved_messages[-1]
+            print(f"[DEBUG] 保存后验证: 长度={len(last_msg['content'])}, 预览={last_msg['content'][:80]}...")
         
         # 如果这是对话的第一条消息，生成标题
         if self.is_first_message:
@@ -717,7 +743,7 @@ class ChatManager:
             lambda result: self.handle_image_generation_result(result, thinking_bubble)
         )
         
-        # 连接进度信号
+        # 连接进度信号  
         image_worker.signals.progress.connect(
             lambda progress, status: self.chat_window.chat_area.update_generation_progress(progress, status)
         )

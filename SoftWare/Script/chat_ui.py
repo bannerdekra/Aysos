@@ -2,7 +2,9 @@ import sys
 import os
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QDialog
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QKeySequence
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QUrl
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtMultimediaWidgets import QVideoWidget
 from sidebar import Sidebar
 from input_bar import InputBar
 from chat_area import ChatArea
@@ -58,6 +60,12 @@ class ChatWindow(QWidget):
         # 使用QTimer延迟最大化，确保窗口完全初始化后再最大化
         QTimer.singleShot(100, self.showMaximized)
         
+        # 视频背景相关
+        self.video_widget = None
+        self.media_player = None
+        self.audio_output = None
+        self.is_video_background = False
+        
         # 聊天管理器引用（稍后设置）
         self.chat_manager = None
         
@@ -93,15 +101,181 @@ class ChatWindow(QWidget):
         QTimer.singleShot(200, self.apply_saved_theme)
 
     def load_background(self):
-        """加载背景图片"""
+        """加载背景图片或视频"""
         try:
-            self.bg_pixmap = QPixmap(BACKGROUND_PATH)
-            if self.bg_pixmap.isNull():
+            # 检查是否为视频文件
+            if BACKGROUND_PATH.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+                self.load_video_background(BACKGROUND_PATH)
+            else:
+                self.load_image_background(BACKGROUND_PATH)
+        except Exception as e:
+            print(f"加载背景失败: {e}")
+            self.load_image_background(None)
+    
+    def load_image_background(self, path):
+        """加载图片背景（只处理图片文件，视频文件自动跳过）"""
+        self.is_video_background = False
+        try:
+            if path and os.path.exists(path):
+                # 【关键修复】检查是否为视频文件，如果是则跳过
+                video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.webm')
+                if path.lower().endswith(video_extensions):
+                    print(f"[背景] 跳过视频文件，不作为图片处理: {os.path.basename(path)}")
+                    # 不设置背景，保持当前状态
+                    return
+                
+                # 只处理图片文件
+                self.bg_pixmap = QPixmap(path)
+                if self.bg_pixmap.isNull():
+                    print(f"无法加载背景图片: {path}")
+                    self.bg_pixmap = QPixmap(1920, 1080)
+                    self.bg_pixmap.fill(Qt.GlobalColor.white)
+                else:
+                    print(f"[背景] 图片背景加载成功: {os.path.basename(path)}")
+            else:
                 self.bg_pixmap = QPixmap(1920, 1080)
                 self.bg_pixmap.fill(Qt.GlobalColor.white)
         except Exception as e:
+            print(f"加载图片背景失败: {e}")
             self.bg_pixmap = QPixmap(1920, 1080)
             self.bg_pixmap.fill(Qt.GlobalColor.white)
+    
+    def load_video_background(self, path):
+        """加载视频背景（入口方法，向后兼容）"""
+        if not os.path.exists(path):
+            print(f"[视频层] ❌ 视频文件不存在: {path}")
+            self.load_image_background(None)
+            return
+        
+        # 直接调用新的播放方法
+        self.play_video_background(path)
+
+    def play_video_background(self, video_path):
+        """设置并开始播放视频背景（独立视频层架构）"""
+        try:
+            print(f"[视频层] 🎬 开始初始化视频播放层: {video_path}")
+            
+            # 【步骤1】初始化视频播放器组件（如果未创建）
+            if not self.media_player:
+                print("[视频层] 创建 QMediaPlayer")
+                self.media_player = QMediaPlayer(self)
+                self.audio_output = QAudioOutput(self)
+                self.media_player.setAudioOutput(self.audio_output)
+                self.media_player.setLoops(QMediaPlayer.Loops.Infinite)  # 循环播放
+                
+                # 连接状态信号用于调试
+                self.media_player.playbackStateChanged.connect(
+                    lambda state: print(f"[视频层] 播放状态: {state}")
+                )
+                self.media_player.errorOccurred.connect(
+                    lambda error, errorString: print(f"[视频层] ❌ 播放错误: {error} - {errorString}")
+                )
+            
+            # 【步骤2】初始化视频显示组件（如果未创建）
+            if not self.video_widget:
+                print("[视频层] 创建 QVideoWidget")
+                self.video_widget = QVideoWidget(self)
+                self.video_widget.setAccessibleName("VideoBackgroundLayer")
+                self.video_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)  # 鼠标穿透
+                self.media_player.setVideoOutput(self.video_widget)
+            
+            # 【步骤3】停止当前播放（如果有）
+            if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                print("[视频层] 停止当前播放")
+                self.media_player.stop()
+            
+            # 【步骤4】设置静音
+            self.audio_output.setVolume(0)
+            print("[视频层] 音频已静音")
+            
+            # 【步骤5】设置新的视频源
+            video_url = QUrl.fromLocalFile(video_path)
+            self.media_player.setSource(video_url)
+            print(f"[视频层] 视频源已设置: {video_url.toString()}")
+            
+            # 【核心修复点A】立即清除主窗口的静态背景样式表，否则它会盖在视频上
+            self.setStyleSheet("")
+            print("[视频层] 🔧 主窗口样式表已清除（避免覆盖视频）")
+            
+            # 【步骤6】调整视频层的大小和位置（铺满整个窗口）
+            self.video_widget.setGeometry(0, 0, self.width(), self.height())
+            print(f"[视频层] 视频区域大小: {self.width()}x{self.height()}")
+            
+            # 【核心修复点B】确保视频组件在层级上低于所有前景 UI 组件
+            self.video_widget.lower()
+            self.video_widget.setVisible(True)
+            self.video_widget.show()
+            print("[视频层] 视频组件已显示并置于底层")
+            
+            # 【步骤8】清除静态背景（避免干扰）
+            self.bg_pixmap = None
+            print("[视频层] 静态背景已清除")
+            
+            # 【步骤9】开始播放
+            self.media_player.play()
+            print("[视频层] ✅ 播放命令已发送")
+            
+            # 【步骤10】标记为视频背景模式
+            self.is_video_background = True
+            
+            print(f"[视频层] ✅ 视频背景播放初始化完成")
+            print(f"[UI] 🎬 动态壁纸尝试播放: {video_path}")
+            
+        except Exception as e:
+            print(f"[视频层] ❌ 播放视频背景失败: {e}")
+            print(f"[UI] ❌ 播放动态壁纸失败: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # 失败后清理
+            if self.video_widget:
+                self.video_widget.setVisible(False)
+            self.is_video_background = False
+
+    def stop_video_background(self):
+        """停止播放视频背景并隐藏视频组件"""
+        try:
+            if self.media_player and self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                self.media_player.stop()
+                
+            if self.video_widget:
+                self.video_widget.setVisible(False)
+                
+            # 清理媒体源，释放资源
+            if self.media_player:
+                self.media_player.setSource(QUrl())
+            
+            self.is_video_background = False
+            print("[UI] 🛑 动态壁纸已停止")
+            
+        except Exception as e:
+            print(f"[UI] ⚠️ 停止动态壁纸时出错: {e}")
+
+    def set_background_static(self, path):
+        """设置静态图片背景（自动停止视频）"""
+        # 【核心修复点C】确保设置静态背景时，视频组件被隐藏
+        if self.is_video_background:
+            print("[视频层] 切换到静态背景，停止视频播放")
+            self.stop_video_background()
+        
+        if path and os.path.exists(path):
+            print(f"[背景层] 加载静态图片: {path}")
+            self.load_image_background(path)
+            
+            # 设置静态背景的样式表，注意路径转义
+            image_path_escaped = path.replace(os.sep, '/')
+            self.setStyleSheet(f"background-image: url('{image_path_escaped}');" + 
+                             " background-repeat: no-repeat; background-position: center; border-radius: 10px;")
+            print(f"[背景层] 静态背景样式已设置: {image_path_escaped}")
+            
+            self.update()
+        else:
+            # 【核心修复点C】清除所有背景样式
+            print("[背景层] 清除所有背景样式")
+            self.setStyleSheet("")
+            self.bg_pixmap = QPixmap(1920, 1080)
+            self.bg_pixmap.fill(Qt.GlobalColor.white)
+            self.update()
 
     def set_chat_manager(self, chat_manager):
         """设置聊天管理器引用"""
@@ -248,17 +422,33 @@ class ChatWindow(QWidget):
 
     def paintEvent(self, event):
         """绘制背景"""
+        # 如果是视频背景，只绘制蒙版（如果需要）
+        if self.is_video_background:
+            if self.theme_manager.dark_mode_enabled:
+                painter = QPainter(self)
+                painter.fillRect(self.rect(), QColor(0, 0, 0, 150))  # 深色模式蒙版
+            return
+        
+        # 绘制图片背景
         painter = QPainter(self)
         scaled_pixmap = self.bg_pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
         painter.drawPixmap(self.rect(), scaled_pixmap)
         
-        # 如果启用深色模式，绘制灰色降亮度蒙版
+        # 如果启用深色模式，绘制蒙版
         if self.theme_manager.dark_mode_enabled:
-            painter.fillRect(self.rect(), QColor(0, 0, 0, 150))  # 增强的半透明黑灰色蒙版，降低屏幕亮度
-
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 150))
+    
     def resizeEvent(self, event):
-        """窗口大小改变时的处理"""
+        """窗口大小改变时调整视频背景和更新显示"""
         super().resizeEvent(event)
+        
+        # 【关键】调整视频层大小以铺满整个窗口
+        if self.is_video_background and self.video_widget:
+            new_size = self.size()
+            self.video_widget.setGeometry(0, 0, new_size.width(), new_size.height())
+            self.video_widget.lower()  # 确保在最底层
+            print(f"[视频层] 窗口大小调整: {new_size.width()}x{new_size.height()}")
+        
         self.update()
 
     # 以下方法委托给相应的组件
