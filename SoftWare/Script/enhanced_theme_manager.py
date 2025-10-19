@@ -211,6 +211,7 @@ class EnhancedThemeManager(QObject):
         self.dark_mode_enabled = False
         self.auto_dark_mode = False
         self.custom_background_path = ""
+        self.is_video_background = False  # 新增：是否为视频背景
         
         # 状态管理
         self._is_updating = False
@@ -421,14 +422,20 @@ class EnhancedThemeManager(QObject):
         else:
             print("[OK] 主题状态无需更改")
     
-    def set_custom_background(self, path):
-        """设置自定义背景"""
+    def set_custom_background(self, path, is_video=False):
+        """设置自定义背景（支持图片和视频）
+        
+        Args:
+            path: 背景文件路径
+            is_video: 是否为视频背景
+        """
         self.custom_background_path = path
+        self.is_video_background = is_video
         self.apply_background()
         self.save_settings()
         
     def apply_background(self):
-        """应用自定义背景"""
+        """应用自定义背景（支持图片和视频）"""
         if not self.main_window or not self.custom_background_path:
             return
             
@@ -436,20 +443,21 @@ class EnhancedThemeManager(QObject):
         if not os.path.exists(self.custom_background_path):
             print(f"背景文件不存在: {self.custom_background_path}")
             return
-            
-        # 更新主窗口的背景图片
+        
         try:
-            from PyQt6.QtGui import QPixmap
-            new_pixmap = QPixmap(self.custom_background_path)
-            if not new_pixmap.isNull():
-                self.main_window.bg_pixmap = new_pixmap
-                self.main_window.update()  # 触发重绘
-                self.main_window.repaint()  # 强制重绘
-                print(f"背景已更新: {self.custom_background_path}")
+            if self.is_video_background:
+                # 应用视频背景
+                print(f"[主题管理器] 应用视频背景: {self.custom_background_path}")
+                self.main_window.play_video_background(self.custom_background_path)
             else:
-                print(f"无法加载背景图片: {self.custom_background_path}")
+                # 应用静态图片背景
+                print(f"[主题管理器] 应用静态图片背景: {self.custom_background_path}")
+                self.main_window.set_background_static(self.custom_background_path)
+                
         except Exception as e:
             print(f"应用背景失败: {e}")
+            import traceback
+            traceback.print_exc()
     
     def set_dark_title_bar(self):
         """设置深色标题栏（Windows特定）"""
@@ -490,7 +498,8 @@ class EnhancedThemeManager(QObject):
         settings = {
             'dark_mode_enabled': self.dark_mode_enabled,
             'auto_dark_mode': self.auto_dark_mode,
-            'custom_background_path': self.custom_background_path
+            'custom_background_path': self.custom_background_path,
+            'is_video_background': self.is_video_background  # 保存视频背景标记
         }
         
         try:
@@ -511,6 +520,7 @@ class EnhancedThemeManager(QObject):
                 self.dark_mode_enabled = settings.get('dark_mode_enabled', False)
                 self.auto_dark_mode = settings.get('auto_dark_mode', False)
                 self.custom_background_path = settings.get('custom_background_path', '')
+                self.is_video_background = settings.get('is_video_background', False)  # 加载视频背景标记
                 
                 # 如果启用了自动模式，启动定时器
                 if self.auto_dark_mode:

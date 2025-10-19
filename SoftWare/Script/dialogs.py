@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdi
 from PyQt6.QtCore import Qt, QTimer, QSize, QRectF, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 import os
+import json
 import datetime
 
 from api_config import (
@@ -902,11 +903,81 @@ class SettingsDialog(QDialog):
         
         # 设置当前背景状态
         if self.theme_manager and self.theme_manager.custom_background_path:
-            self.bg_path_label.setText(f"已选择: {os.path.basename(self.theme_manager.custom_background_path)}")
+            # 判断背景类型
+            bg_type = "视频" if self.theme_manager.is_video_background else "图片"
+            self.bg_path_label.setText(f"已选择: {os.path.basename(self.theme_manager.custom_background_path)} ({bg_type})")
             
         bg_layout.addWidget(self.bg_path_label)
         
         self.right_layout.addWidget(bg_frame)
+        
+        # 文本折叠设置
+        collapse_frame = QFrame()
+        collapse_frame.setStyleSheet(
+            f"border: 1px solid {palette['card_border']}; border-radius: 8px; padding: 14px; margin: 8px 0; background-color: {palette['card_bg']};"
+        )
+        collapse_layout = QVBoxLayout(collapse_frame)
+        collapse_layout.setSpacing(10)
+        
+        collapse_label = QLabel("长文本折叠设置")
+        collapse_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {palette['text_primary']};"
+        )
+        collapse_layout.addWidget(collapse_label)
+        
+        collapse_hint = QLabel("当 Agent 回复超过设定字符数时，自动显示展开/收起按钮")
+        collapse_hint.setStyleSheet(
+            f"font-size: 12px; color: {palette['text_muted']};"
+        )
+        collapse_hint.setWordWrap(True)
+        collapse_layout.addWidget(collapse_hint)
+        
+        # 阈值输入框
+        threshold_row = QHBoxLayout()
+        threshold_label = QLabel("折叠阈值（字符数）:")
+        threshold_label.setStyleSheet(
+            f"font-size: 13px; color: {palette['text_primary']};"
+        )
+        threshold_row.addWidget(threshold_label)
+        
+        from PyQt6.QtWidgets import QSpinBox
+        self.collapse_threshold_spinbox = QSpinBox()
+        self.collapse_threshold_spinbox.setMinimum(100)
+        self.collapse_threshold_spinbox.setMaximum(5000)
+        self.collapse_threshold_spinbox.setSingleStep(50)
+        self.collapse_threshold_spinbox.setValue(self.load_collapse_threshold())
+        self.collapse_threshold_spinbox.valueChanged.connect(self.save_collapse_threshold)
+        self.collapse_threshold_spinbox.setStyleSheet(
+            f"QSpinBox {{ background: {palette['input_bg']}; border: 1px solid {palette['input_border']}; padding: 6px; border-radius: 4px; color: {palette['text_primary']}; }}"
+        )
+        threshold_row.addWidget(self.collapse_threshold_spinbox)
+        threshold_row.addStretch()
+        
+        collapse_layout.addLayout(threshold_row)
+        
+        # 预览长度输入框
+        preview_row = QHBoxLayout()
+        preview_label = QLabel("收起时显示字符数:")
+        preview_label.setStyleSheet(
+            f"font-size: 13px; color: {palette['text_primary']};"
+        )
+        preview_row.addWidget(preview_label)
+        
+        self.preview_length_spinbox = QSpinBox()
+        self.preview_length_spinbox.setMinimum(50)
+        self.preview_length_spinbox.setMaximum(1000)
+        self.preview_length_spinbox.setSingleStep(50)
+        self.preview_length_spinbox.setValue(self.load_preview_length())
+        self.preview_length_spinbox.valueChanged.connect(self.save_preview_length)
+        self.preview_length_spinbox.setStyleSheet(
+            f"QSpinBox {{ background: {palette['input_bg']}; border: 1px solid {palette['input_border']}; padding: 6px; border-radius: 4px; color: {palette['text_primary']}; }}"
+        )
+        preview_row.addWidget(self.preview_length_spinbox)
+        preview_row.addStretch()
+        
+        collapse_layout.addLayout(preview_row)
+        
+        self.right_layout.addWidget(collapse_frame)
         
         # 添加弹性空间
         self.right_layout.addStretch()
@@ -1248,7 +1319,74 @@ class SettingsDialog(QDialog):
         current_item = self.parent_list.currentItem() if self.parent_list else None
         if current_item:
             current_text = current_item.text()
-            QTimer.singleShot(0, lambda: self.switch_to_parent_content(current_text))
+    
+    def load_collapse_threshold(self):
+        """加载文本折叠阈值"""
+        try:
+            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                    return settings.get('collapse_threshold', 500)
+        except Exception as e:
+            print(f"加载折叠阈值失败: {e}")
+        return 500  # 默认值
+    
+    def save_collapse_threshold(self, value):
+        """保存文本折叠阈值"""
+        try:
+            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
+            settings = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            
+            settings['collapse_threshold'] = value
+            
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=2, ensure_ascii=False)
+            
+            # 更新 chat_area.py 中的阈值
+            from chat_area import CollapsibleBubbleLabel
+            CollapsibleBubbleLabel.COLLAPSE_THRESHOLD = value
+            
+            print(f"折叠阈值已保存: {value}")
+        except Exception as e:
+            print(f"保存折叠阈值失败: {e}")
+    
+    def load_preview_length(self):
+        """加载收起时显示的字符数"""
+        try:
+            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                    return settings.get('preview_length', 300)
+        except Exception as e:
+            print(f"加载预览长度失败: {e}")
+        return 300  # 默认值
+    
+    def save_preview_length(self, value):
+        """保存收起时显示的字符数"""
+        try:
+            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
+            settings = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            
+            settings['preview_length'] = value
+            
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=2, ensure_ascii=False)
+            
+            # 更新 chat_area.py 中的预览长度
+            from chat_area import CollapsibleBubbleLabel
+            CollapsibleBubbleLabel.PREVIEW_LENGTH = value
+            
+            print(f"预览长度已保存: {value}")
+        except Exception as e:
+            print(f"保存预览长度失败: {e}")
 
     def show_auto_mode_prompt(self):
         """展示自动模式提示信息，使用浅色样式"""
@@ -1297,13 +1435,15 @@ class SettingsDialog(QDialog):
         if file_path:
             # 判断文件类型
             ext = os.path.splitext(file_path)[1].lower()
-            file_type = "视频" if ext in ['.mp4', '.avi', '.mov', '.mkv'] else "图片"
+            is_video = ext in ['.mp4', '.avi', '.mov', '.mkv']
+            file_type = "视频" if is_video else "图片"
             
             # 检查文件格式和分辨率
             if self.validate_background_file(file_path):
-                self.bg_path_label.setText(f"已选择: {os.path.basename(file_path)}")
+                self.bg_path_label.setText(f"已选择: {os.path.basename(file_path)} ({file_type})")
                 if self.theme_manager:
-                    self.theme_manager.set_custom_background(file_path)
+                    # 传递 is_video 参数
+                    self.theme_manager.set_custom_background(file_path, is_video=is_video)
                     # 立即应用背景并刷新UI
                     QTimer.singleShot(100, self.theme_manager.apply_background)
                 
@@ -1311,7 +1451,7 @@ class SettingsDialog(QDialog):
                 QMessageBox.information(self, "背景设置", f"✅ 背景{file_type}已更新\n\n文件: {os.path.basename(file_path)}\n类型: {file_type}文件")
             else:
                 print(f"❌ 背景{file_type}验证失败: {file_path}")
-                if ext in ['.mp4', '.avi', '.mov', '.mkv']:
+                if is_video:
                     QMessageBox.warning(self, "格式错误", f"❌ 无法加载视频文件\n\n请确保:\n1. 视频文件未损坏\n2. 视频编码受支持（推荐 H.264）\n3. 文件路径正确")
                 else:
                     QMessageBox.warning(self, "格式错误", f"❌ 只支持1920×1080分辨率的图片文件\n\n支持格式: PNG, JPG, JPEG")

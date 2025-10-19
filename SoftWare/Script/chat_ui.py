@@ -1,10 +1,10 @@
 import sys
 import os
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QDialog
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QDialog, QGraphicsView, QGraphicsScene
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QKeySequence
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QUrl
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
-from PyQt6.QtMultimediaWidgets import QVideoWidget
+from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from sidebar import Sidebar
 from input_bar import InputBar
 from chat_area import ChatArea
@@ -50,6 +50,9 @@ class ChatWindow(QWidget):
         super().__init__()
         self.setWindowTitle('Agent')
         
+        # 设置对象名称，用于样式选择器（确保背景样式不影响子组件）
+        self.setObjectName("ChatWindow")
+        
         # 设置窗口可以调整大小和最大化
         self.setMinimumSize(1200, 800)
         self.resize(1920, 1080)
@@ -57,14 +60,16 @@ class ChatWindow(QWidget):
         # 启用窗口最大化按钮并启动时最大化
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint | Qt.WindowType.WindowCloseButtonHint)
         
-        # 使用QTimer延迟最大化，确保窗口完全初始化后再最大化
+        # 使用QTimer延迟最大化,确保窗口完全初始化后再最大化
         QTimer.singleShot(100, self.showMaximized)
         
-        # 视频背景相关
-        self.video_widget = None
-        self.media_player = None
-        self.audio_output = None
-        self.is_video_background = False
+        # 视频背景相关 - 使用 QGraphicsVideoItem 架构
+        self.graphics_view = None          # QGraphicsView 容器
+        self.graphics_scene = None         # QGraphicsScene 场景
+        self.video_item = None             # QGraphicsVideoItem 视频项
+        self.media_player = None           # QMediaPlayer 播放器
+        self.audio_output = None           # QAudioOutput 音频输出
+        self.is_video_background = False   # 是否为视频背景模式
         
         # 聊天管理器引用（稍后设置）
         self.chat_manager = None
@@ -151,7 +156,7 @@ class ChatWindow(QWidget):
         self.play_video_background(path)
 
     def play_video_background(self, video_path):
-        """设置并开始播放视频背景（独立视频层架构）"""
+        """设置并开始播放视频背景（QGraphicsVideoItem 架构）"""
         try:
             print(f"[视频层] 🎬 开始初始化视频播放层: {video_path}")
             
@@ -171,51 +176,83 @@ class ChatWindow(QWidget):
                     lambda error, errorString: print(f"[视频层] ❌ 播放错误: {error} - {errorString}")
                 )
             
-            # 【步骤2】初始化视频显示组件（如果未创建）
-            if not self.video_widget:
-                print("[视频层] 创建 QVideoWidget")
-                self.video_widget = QVideoWidget(self)
-                self.video_widget.setAccessibleName("VideoBackgroundLayer")
-                self.video_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)  # 鼠标穿透
-                self.media_player.setVideoOutput(self.video_widget)
+            # 【步骤2】初始化 QGraphicsScene 和 QGraphicsView（如果未创建）
+            if not self.graphics_scene:
+                print("[视频层] 创建 QGraphicsScene")
+                self.graphics_scene = QGraphicsScene(self)
+                
+            if not self.graphics_view:
+                print("[视频层] 创建 QGraphicsView")
+                self.graphics_view = QGraphicsView(self.graphics_scene, self)
+                # 设置为不可交互，所有鼠标事件穿透到下层 UI
+                self.graphics_view.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                self.graphics_view.setInteractive(False)
+                # 隐藏滚动条
+                self.graphics_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                self.graphics_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                # 无边框、无背景
+                self.graphics_view.setFrameShape(QGraphicsView.Shape.NoFrame)
+                self.graphics_view.setStyleSheet("background: transparent;")
             
-            # 【步骤3】停止当前播放（如果有）
+            # 【步骤3】创建 QGraphicsVideoItem（如果未创建）
+            if not self.video_item:
+                print("[视频层] 创建 QGraphicsVideoItem")
+                self.video_item = QGraphicsVideoItem()
+                self.graphics_scene.addItem(self.video_item)
+                # 设置视频项的 z-order 为最底层
+                self.video_item.setZValue(-1000)
+                # 连接到媒体播放器
+                self.media_player.setVideoOutput(self.video_item)
+            
+            # 【步骤4】停止当前播放（如果有）
             if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 print("[视频层] 停止当前播放")
                 self.media_player.stop()
             
-            # 【步骤4】设置静音
+            # 【步骤5】设置静音
             self.audio_output.setVolume(0)
             print("[视频层] 音频已静音")
             
-            # 【步骤5】设置新的视频源
+            # 【步骤6】设置新的视频源
             video_url = QUrl.fromLocalFile(video_path)
             self.media_player.setSource(video_url)
             print(f"[视频层] 视频源已设置: {video_url.toString()}")
             
-            # 【核心修复点A】立即清除主窗口的静态背景样式表，否则它会盖在视频上
-            self.setStyleSheet("")
-            print("[视频层] 🔧 主窗口样式表已清除（避免覆盖视频）")
+            # 【步骤7】清除主窗口的静态背景样式表（只影响主窗口，不影响子组件）
+            self.setStyleSheet("QWidget#ChatWindow { background: transparent; }")
+            print("[视频层] 🔧 主窗口背景已设置为透明（视频模式）")
             
-            # 【步骤6】调整视频层的大小和位置（铺满整个窗口）
-            self.video_widget.setGeometry(0, 0, self.width(), self.height())
+            # 【步骤8】调整视频层的大小和位置（铺满整个窗口）
+            self.graphics_view.setGeometry(0, 0, self.width(), self.height())
+            # 调整 scene 和 video_item 的大小
+            self.graphics_scene.setSceneRect(0, 0, self.width(), self.height())
+            self.video_item.setSize(self.graphics_scene.sceneRect().size())
             print(f"[视频层] 视频区域大小: {self.width()}x{self.height()}")
             
-            # 【核心修复点B】确保视频组件在层级上低于所有前景 UI 组件
-            self.video_widget.lower()
-            self.video_widget.setVisible(True)
-            self.video_widget.show()
-            print("[视频层] 视频组件已显示并置于底层")
+            # 【步骤9】确保视频容器在底层，UI 在上层
+            self.graphics_view.lower()  # 将 graphics_view 置于最底层
+            self.graphics_view.setVisible(True)
+            self.graphics_view.show()
             
-            # 【步骤8】清除静态背景（避免干扰）
+            # 提升所有 UI 组件到视频层上方
+            if hasattr(self, 'sidebar') and self.sidebar:
+                self.sidebar.raise_()
+            if hasattr(self, 'input_bar') and self.input_bar:
+                self.input_bar.raise_()
+            if hasattr(self, 'chat_area') and self.chat_area:
+                self.chat_area.raise_()
+            
+            print("[视频层] 视频组件已显示并置于底层，UI 已提升")
+            
+            # 【步骤10】清除静态背景（避免干扰）
             self.bg_pixmap = None
             print("[视频层] 静态背景已清除")
             
-            # 【步骤9】开始播放
+            # 【步骤11】开始播放
             self.media_player.play()
             print("[视频层] ✅ 播放命令已发送")
             
-            # 【步骤10】标记为视频背景模式
+            # 【步骤12】标记为视频背景模式
             self.is_video_background = True
             
             print(f"[视频层] ✅ 视频背景播放初始化完成")
@@ -228,8 +265,8 @@ class ChatWindow(QWidget):
             traceback.print_exc()
             
             # 失败后清理
-            if self.video_widget:
-                self.video_widget.setVisible(False)
+            if self.graphics_view:
+                self.graphics_view.setVisible(False)
             self.is_video_background = False
 
     def stop_video_background(self):
@@ -238,8 +275,8 @@ class ChatWindow(QWidget):
             if self.media_player and self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 self.media_player.stop()
                 
-            if self.video_widget:
-                self.video_widget.setVisible(False)
+            if self.graphics_view:
+                self.graphics_view.setVisible(False)
                 
             # 清理媒体源，释放资源
             if self.media_player:
@@ -263,16 +300,23 @@ class ChatWindow(QWidget):
             self.load_image_background(path)
             
             # 设置静态背景的样式表，注意路径转义
+            # 【关键修复】使用 QWidget#ChatWindow 选择器，只影响主窗口，不影响子组件（如对话框）
             image_path_escaped = path.replace(os.sep, '/')
-            self.setStyleSheet(f"background-image: url('{image_path_escaped}');" + 
-                             " background-repeat: no-repeat; background-position: center; border-radius: 10px;")
+            self.setStyleSheet(f"""
+                QWidget#ChatWindow {{
+                    background-image: url('{image_path_escaped}');
+                    background-repeat: no-repeat;
+                    background-position: center;
+                    border-radius: 10px;
+                }}
+            """)
             print(f"[背景层] 静态背景样式已设置: {image_path_escaped}")
             
             self.update()
         else:
-            # 【核心修复点C】清除所有背景样式
+            # 【核心修复点C】清除背景样式，使用 QWidget#ChatWindow 选择器
             print("[背景层] 清除所有背景样式")
-            self.setStyleSheet("")
+            self.setStyleSheet("QWidget#ChatWindow { background: white; }")
             self.bg_pixmap = QPixmap(1920, 1080)
             self.bg_pixmap.fill(Qt.GlobalColor.white)
             self.update()
@@ -443,10 +487,15 @@ class ChatWindow(QWidget):
         super().resizeEvent(event)
         
         # 【关键】调整视频层大小以铺满整个窗口
-        if self.is_video_background and self.video_widget:
+        if self.is_video_background and self.graphics_view:
             new_size = self.size()
-            self.video_widget.setGeometry(0, 0, new_size.width(), new_size.height())
-            self.video_widget.lower()  # 确保在最底层
+            self.graphics_view.setGeometry(0, 0, new_size.width(), new_size.height())
+            # 更新场景和视频项大小
+            if self.graphics_scene:
+                self.graphics_scene.setSceneRect(0, 0, new_size.width(), new_size.height())
+            if self.video_item:
+                self.video_item.setSize(self.graphics_scene.sceneRect().size())
+            self.graphics_view.lower()  # 确保在最底层
             print(f"[视频层] 窗口大小调整: {new_size.width()}x{new_size.height()}")
         
         self.update()

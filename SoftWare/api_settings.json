@@ -1,12 +1,12 @@
 {
   "api_key": "",
-  "api_url": "https://api.deepseek.com/chat/completions",
+  "api_url": "http***********************************ns",
   "model": "deepseek-chat",
   "current_provider": "deepseek",
   "providers": {
     "deepseek": {
       "api_key": "",
-      "api_url": "https://api.deepseek.com/chat/completions",
+      "api_url": "http***********************************ns",
       "model": "deepseek-chat",
       "display_name": "DeepSeek"
     },

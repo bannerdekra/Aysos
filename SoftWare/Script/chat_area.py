@@ -18,6 +18,133 @@ def resource_path(relative_path):
     full_path = os.path.join(base_path, relative_path)
     return full_path
 
+
+class CollapsibleBubbleLabel(QWidget):
+    """可折叠的气泡标签 - 支持长文本折叠/展开
+    
+    特性：
+    - 自动检测文本长度，超过阈值显示展开/收起按钮
+    - 收起时显示前 N 个字符 + "..."
+    - 保持文本可选择和复制
+    """
+    
+    # 默认配置
+    COLLAPSE_THRESHOLD = 500  # 字符数阈值
+    PREVIEW_LENGTH = 300      # 收起时显示的字符数
+    
+    def __init__(self, text, side='left', parent=None):
+        super().__init__(parent)
+        self.full_text = text
+        self.side = side
+        self.is_collapsed = len(text) > self.COLLAPSE_THRESHOLD  # 长文本默认收起
+        
+        # 初始化UI
+        self.init_ui()
+        self.update_display()
+    
+    def init_ui(self):
+        """初始化UI布局"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        
+        # 文本标签
+        self.text_label = QLabel()
+        self.text_label.setWordWrap(True)
+        self.text_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.text_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        
+        # 启用文本选择和交互
+        self.text_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | 
+            Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.text_label.setCursor(Qt.CursorShape.IBeamCursor)
+        
+        layout.addWidget(self.text_label)
+        
+        # 展开/收起按钮（仅长文本显示）
+        if len(self.full_text) > self.COLLAPSE_THRESHOLD:
+            self.toggle_button = QPushButton()
+            self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.toggle_button.clicked.connect(self.toggle_collapse)
+            self.toggle_button.setFixedHeight(28)  # 固定高度
+            self.toggle_button.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                               stop:0 #FF6B6B, stop:1 #EE5A6F);
+                    border: 2px solid #FF4757;
+                    border-radius: 14px;
+                    color: white;
+                    font-size: 13px;
+                    font-weight: bold;
+                    text-align: center;
+                    padding: 4px 16px;
+                    min-width: 80px;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                               stop:0 #FF8787, stop:1 #FF6B6B);
+                    border: 2px solid #FF6B6B;
+                }
+                QPushButton:pressed {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                               stop:0 #EE5A6F, stop:1 #E63946);
+                    border: 2px solid #E63946;
+                }
+            """)
+            layout.addWidget(self.toggle_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        else:
+            self.toggle_button = None
+    
+    def update_display(self):
+        """更新显示内容"""
+        if self.is_collapsed and len(self.full_text) > self.COLLAPSE_THRESHOLD:
+            # 收起状态：显示前 N 个字符
+            preview_text = self.full_text[:self.PREVIEW_LENGTH] + "..."
+            self.text_label.setText(preview_text)
+            if self.toggle_button:
+                self.toggle_button.setText("▼ 展开")
+        else:
+            # 展开状态：显示完整文本
+            self.text_label.setText(self.full_text)
+            if self.toggle_button:
+                self.toggle_button.setText("▲ 收起")
+    
+    def toggle_collapse(self):
+        """切换折叠状态"""
+        self.is_collapsed = not self.is_collapsed
+        self.update_display()
+        
+        # 调整大小以适应新内容
+        self.adjustSize()
+        self.parent().adjustSize() if self.parent() else None
+    
+    def setText(self, text):
+        """更新文本内容（保持兼容性）"""
+        self.full_text = text
+        self.is_collapsed = len(text) > self.COLLAPSE_THRESHOLD
+        self.update_display()
+    
+    def text(self):
+        """获取完整文本（保持兼容性）"""
+        return self.full_text
+    
+    def setStyleSheet(self, style):
+        """设置样式（应用到文本标签）"""
+        self.text_label.setStyleSheet(style)
+    
+    def setMaximumWidth(self, width):
+        """设置最大宽度"""
+        super().setMaximumWidth(width)
+        self.text_label.setMaximumWidth(width)
+    
+    def setMinimumWidth(self, width):
+        """设置最小宽度"""
+        super().setMinimumWidth(width)
+        self.text_label.setMinimumWidth(width)
+
+
 class BubbleLabel(QLabel):
     def __init__(self, text, side='left', parent=None):
         super().__init__(parent)
@@ -37,6 +164,26 @@ class BubbleLabel(QLabel):
 
 # 创建带复制功能的气泡类
 CopyableBubbleLabel = create_copyable_bubble_class(BubbleLabel)
+# 创建可折叠且带复制功能的气泡类
+CopyableCollapsibleBubbleLabel = create_copyable_bubble_class(CollapsibleBubbleLabel)
+
+# 加载用户配置的折叠设置
+def load_collapse_settings():
+    """从配置文件加载折叠设置"""
+    try:
+        import json
+        settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
+        if os.path.exists(settings_path):
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+                CollapsibleBubbleLabel.COLLAPSE_THRESHOLD = settings.get('collapse_threshold', 500)
+                CollapsibleBubbleLabel.PREVIEW_LENGTH = settings.get('preview_length', 300)
+                print(f"[折叠设置] 阈值: {CollapsibleBubbleLabel.COLLAPSE_THRESHOLD}, 预览长度: {CollapsibleBubbleLabel.PREVIEW_LENGTH}")
+    except Exception as e:
+        print(f"[折叠设置] 加载失败: {e}")
+
+# 应用启动时加载配置
+load_collapse_settings()
 
 class ClickableFileChip(QPushButton):
     """可点击的文件引用标签，显示在用户气泡下方"""
@@ -521,7 +668,7 @@ class ChatArea(QWidget):
         self._scroll_to_bottom_precisely()
 
     def update_chat_display(self, reply_text):
-        """更新Agent回复 - 使用优化的布局系统：内容包裹优先，最大宽度限制"""        
+        """更新Agent回复 - 使用可折叠气泡系统：长文本自动支持展开/收起"""        
         # 移除thinking动画
         self.remove_thinking_bubble()
 
@@ -531,13 +678,15 @@ class ChatArea(QWidget):
         row_layout = QHBoxLayout(message_row)
         row_layout.setContentsMargins(8, 4, 8, 4)
         row_layout.setSpacing(0)
-        agent_bubble = CopyableBubbleLabel(reply_text, side='left', parent=message_row)
-        agent_bubble.setWordWrap(True)
+        
+        # 使用可折叠气泡（长文本会自动显示展开/收起按钮）
+        agent_bubble = CopyableCollapsibleBubbleLabel(reply_text, side='left', parent=message_row)
         max_width = int((self.width() - 32) * 0.6)
         agent_bubble.setMaximumWidth(max_width)
         agent_bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         if '\n' in reply_text:
             agent_bubble.setMinimumWidth(int(max_width * 0.95))
+        
         bubble_index = len(self.message_bubbles)
         agent_bubble.set_bubble_index(bubble_index)
         self.message_bubbles.append({
@@ -546,6 +695,8 @@ class ChatArea(QWidget):
             'content': reply_text,
             'container': message_row
         })
+        
+        # 设置气泡样式（应用到内部文本标签）
         agent_bubble.setStyleSheet("""
             QLabel {
                 background: rgb(30,144,255); 
@@ -556,7 +707,9 @@ class ChatArea(QWidget):
                 margin: 4px;
             }
         """)
+        
         row_layout.addWidget(agent_bubble)
+        
         # 新增：显示Agent引用的文件名（如有）
         if hasattr(self.parent(), 'input_bar'):
             persistent_files = self.parent().input_bar.get_persistent_files() if hasattr(self.parent().input_bar, 'get_persistent_files') else []
@@ -566,15 +719,20 @@ class ChatArea(QWidget):
                     file_label = QLabel(f"🔗 {file_name}", parent=message_row)
                     file_label.setStyleSheet("color: #555; font-size: 13px; margin-left: 24px; margin-bottom: 2px;")
                     row_layout.addWidget(file_label)
+        
         right_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         row_layout.addItem(right_spacer)
+        
         self.agent_layout.addWidget(message_row)
+        
         spacer_item = QSpacerItem(0, 16, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.agent_layout.addItem(spacer_item)
+        
         message_row.adjustSize()
         agent_bubble.adjustSize()
         self.chat_content.update()
         self._scroll_to_bottom_precisely()
+        
         self.current_thinking_bubble = None
     
     def display_generated_image(self, image_path: str):
@@ -693,7 +851,7 @@ class ChatArea(QWidget):
             print(f"[ERROR] 预览图片失败: {e}")
 
     def add_history_bubble(self, role, content, file_paths=None):
-        """添加历史记录气泡 - 使用优化的布局系统：内容包裹优先，最大宽度限制
+        """添加历史记录气泡 - Agent 回复使用可折叠气泡
         
         Args:
             role: 消息角色 ('user' 或 'assistant')
@@ -723,9 +881,12 @@ class ChatArea(QWidget):
         row_layout.setContentsMargins(8, 4, 8, 4)
         row_layout.setSpacing(0)
         
-        # 创建气泡标签
-        bubble = CopyableBubbleLabel(content, side='right' if role == 'user' else 'left', parent=message_row)
-        bubble.setWordWrap(True)
+        # 根据角色选择气泡类型：Agent 使用可折叠气泡，用户使用普通气泡
+        if role == 'assistant':
+            bubble = CopyableCollapsibleBubbleLabel(content, side='left', parent=message_row)
+        else:
+            bubble = CopyableBubbleLabel(content, side='right' if role == 'user' else 'left', parent=message_row)
+            bubble.setWordWrap(True)
         
         # 设置气泡最大宽度为聊天区域宽度的60%
         max_width = int((self.width() - 32) * 0.6)  # 减去边距
