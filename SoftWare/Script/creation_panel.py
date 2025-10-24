@@ -167,7 +167,7 @@ class CreationPanel(QDialog):
         """)
         
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(6)  # 🔧 减小间距（10->6）
+        main_layout.setSpacing(4)  # 🔧 进一步减小整体垂直间距（6->4）
         main_layout.setContentsMargins(15, 8, 15, 12)  # 🔧 减小边距（20,20,20,20 -> 15,8,15,12）
         
         # 标题 - 更紧凑
@@ -183,10 +183,13 @@ class CreationPanel(QDialog):
         
         # 1. 提示词区域（并排，更紧凑，无外框）
         prompts_layout = QHBoxLayout()
+        prompts_layout.setContentsMargins(0, 0, 0, 0)  # 🔧 移除上方多余空白
+        prompts_layout.setSpacing(8)  # 🔧 缩小正向与负向提示词之间的水平间距（12->8）
         
         # 正向提示词
         positive_container = QVBoxLayout()
-        positive_container.setSpacing(3)  # 🔧 减小内部间距
+        positive_container.setSpacing(1)  # 🔧 进一步减小间距（3->1）
+        positive_container.setContentsMargins(0, 0, 0, 0)
         positive_header = QHBoxLayout()
         positive_title = QLabel("正向提示词")
         positive_title.setStyleSheet("""
@@ -213,7 +216,8 @@ class CreationPanel(QDialog):
         
         # 负向提示词
         negative_container = QVBoxLayout()
-        negative_container.setSpacing(3)  # 🔧 减小内部间距
+        negative_container.setSpacing(1)  # 🔧 进一步减小间距（3->1）
+        negative_container.setContentsMargins(0, 0, 0, 0)
         negative_header = QHBoxLayout()
         negative_title = QLabel("负向提示词")
         negative_title.setStyleSheet("""

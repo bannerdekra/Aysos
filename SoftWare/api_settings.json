@@ -1,12 +1,9 @@
 {
-  "api_key": "",
-  "api_url": "http***********************************ns",
-  "model": "deepseek-chat",
-  "current_provider": "deepseek",
+  "current_provider": "gemini",
   "providers": {
     "deepseek": {
       "api_key": "",
-      "api_url": "http***********************************ns",
+      "api_url": "https://api.deepseek.com/chat/completions",
       "model": "deepseek-chat",
       "display_name": "DeepSeek"
     },
@@ -16,5 +13,8 @@
       "model": "gemini-2.5-flash",
       "display_name": "Gemini"
     }
-  }
+  },
+  "api_key": "",
+  "api_url": "",
+  "model": "gemini-2.5-flash"
 }

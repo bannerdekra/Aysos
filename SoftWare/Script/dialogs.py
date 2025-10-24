@@ -542,6 +542,31 @@ class SettingsDialog(QDialog):
             "accent_warning": {"bg": "#FF9800", "hover": "#F57C00", "text": "#ffffff"},
         }
 
+    @staticmethod
+    def _config_path():
+        return os.path.join(os.path.dirname(__file__), 'config.json')
+
+    def _read_config(self):
+        try:
+            with open(self._config_path(), 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print("[设置] 警告: config.json 未找到，使用默认值")
+        except Exception as e:
+            print(f"[设置] 读取 config.json 失败: {e}")
+        return {}
+
+    def _write_config(self, config_data):
+        try:
+            with open(self._config_path(), 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[设置] 写入 config.json 失败: {e}")
+
+    def _ensure_ui_section(self, config_data):
+        app_section = config_data.setdefault('app', {})
+        return app_section.setdefault('ui', {})
+
     def build_button_style(self, *, padding="10px 15px", radius=6, font_size="13px", bold=False, accent=None):
         palette = self.get_theme_palette()
         accent_colors = None
@@ -1002,7 +1027,7 @@ class SettingsDialog(QDialog):
         )
         self.right_layout.addWidget(title_label)
         
-        # 存储方式选择
+        # 本地存储路径选择
         storage_frame = QFrame()
         storage_frame.setStyleSheet(
             f"border: 1px solid {palette['card_border']}; border-radius: 8px; padding: 14px; margin: 8px 0; background-color: {palette['card_bg']};"
@@ -1010,35 +1035,21 @@ class SettingsDialog(QDialog):
         storage_layout = QVBoxLayout(storage_frame)
         storage_layout.setSpacing(12)
         
-        storage_label = QLabel("存储方式选择")
+        storage_label = QLabel("本地存储路径")
         storage_label.setStyleSheet(
             f"font-size: 14px; font-weight: bold; color: {palette['text_primary']}; margin-bottom: 8px;"
         )
         storage_layout.addWidget(storage_label)
         
-        # DSN数据库存储按钮
-        self.dsn_config_button = QPushButton("🗄️ 配置DSN数据库存储")
-        self.dsn_config_button.setStyleSheet(
-            self.build_button_style(padding="10px 15px", radius=6, font_size="13px", bold=True, accent="success")
-        )
-        self.dsn_config_button.clicked.connect(self.handle_dsn_config)
-        storage_layout.addWidget(self.dsn_config_button)
-        
-        dsn_hint = QLabel("使用数据库存储聊天记录，支持高性能查询和云端同步。")
-        dsn_hint.setStyleSheet(
-            f"font-size: 11px; color: {palette['text_secondary']}; margin-left: 10px;"
-        )
-        storage_layout.addWidget(dsn_hint)
-        
         # 文件存储按钮
-        self.file_config_button = QPushButton("📁 使用本地文件存储")
+        self.file_config_button = QPushButton("📁 选择本地存储路径")
         self.file_config_button.setStyleSheet(
             self.build_button_style(padding="10px 15px", radius=6, font_size="13px", bold=True, accent="info")
         )
         self.file_config_button.clicked.connect(self.handle_file_config)
         storage_layout.addWidget(self.file_config_button)
         
-        file_hint = QLabel("使用本地文件存储聊天记录，简单方便，无需配置数据库。")
+        file_hint = QLabel("选择本地文件夹存储聊天记录，数据保存在本地。")
         file_hint.setStyleSheet(
             f"font-size: 11px; color: {palette['text_secondary']}; margin-left: 10px;"
         )
@@ -1069,35 +1080,6 @@ class SettingsDialog(QDialog):
         self.update_storage_status()
         
         self.right_layout.addWidget(status_frame)
-        
-        # 数据管理操作
-        manage_frame = QFrame()
-        manage_frame.setStyleSheet(
-            f"border: 1px solid {palette['card_border']}; border-radius: 8px; padding: 14px; margin: 8px 0; background-color: {palette['card_bg']};"
-        )
-        manage_layout = QVBoxLayout(manage_frame)
-        
-        manage_label = QLabel("数据管理操作")
-        manage_label.setStyleSheet(
-            f"font-size: 14px; font-weight: bold; color: {palette['text_primary']}; margin-bottom: 8px;"
-        )
-        manage_layout.addWidget(manage_label)
-        
-        # 数据迁移按钮
-        migrate_button = QPushButton("🔄 数据迁移")
-        migrate_button.setStyleSheet(
-            self.build_button_style(padding="8px 12px", radius=4, font_size="12px", accent="warning")
-        )
-        migrate_button.clicked.connect(self.show_migrate_options)
-        manage_layout.addWidget(migrate_button)
-        
-        migrate_hint = QLabel("在不同存储方式之间迁移聊天数据。")
-        migrate_hint.setStyleSheet(
-            f"font-size: 11px; color: {palette['text_secondary']}; margin-left: 10px;"
-        )
-        manage_layout.addWidget(migrate_hint)
-        
-        self.right_layout.addWidget(manage_frame)
         
         # 添加弹性空间
         self.right_layout.addStretch()
@@ -1274,60 +1256,57 @@ class SettingsDialog(QDialog):
         self.right_layout.addStretch()
     
     def on_dark_mode_toggled(self, checked):
-        """深色模式开关切换 - 增强响应版本"""
-        print(f"🔘 深色模式状态变化: {checked}, theme_manager: {self.theme_manager}")
+        """深色模式开关切换 - 即时响应，无防抖"""
+        print(f"🔘 深色模式状态变化: {checked}")
         
         if not self.theme_manager:
             print("[ERROR] 警告: theme_manager 为 None")
             return
         
-        # 使用增强的主题管理器进行快速切换
-        if hasattr(self.theme_manager, 'enable_dark_mode_fast'):
-            print("⚡ 使用快速主题切换")
-            self.theme_manager.enable_dark_mode_fast(checked)
-        else:
-            print("🐌 使用标准主题切换")
-            self.theme_manager.enable_dark_mode(checked)
+        # 直接调用，无延迟
+        self.theme_manager.enable_dark_mode(checked)
 
     def on_auto_mode_toggled(self, enabled):
-        """自动模式开关切换 - 增强响应版本"""
+        """自动模式开关切换 - 即时响应，无防抖"""
         print(f"🔘 自动模式状态变化: {enabled}")
-        
-        # 立即提供用户反馈
-        if enabled:
-            print("⏰ 正在启用自动模式...")
-            self.show_auto_mode_prompt()
-        else:
-            print("⏹️ 正在禁用自动模式...")
         
         if not self.theme_manager:
             print("[ERROR] 警告: theme_manager 为 None")
             return
-            
-        # 异步设置自动模式，避免阻塞UI
-        QTimer.singleShot(0, lambda: self.theme_manager.set_auto_mode(enabled))
+        
+        # 直接调用，无延迟
+        self.theme_manager.set_auto_mode(enabled)
+        
+        # 如果开启自动模式，提示用户
+        if enabled:
+            self.show_auto_mode_prompt()
 
     def on_theme_manager_dark_mode_changed(self, enabled):
-        """主题管理器回调，保持开关与全局状态同步"""
+        """主题管理器回调，保持开关与全局状态同步并刷新当前面板"""
+        print(f"🎨 主题管理器回调: dark_mode={enabled}")
+        
+        # 同步开关状态
         if self.dark_mode_switch is not None:
             self.dark_mode_switch.blockSignals(True)
             self.dark_mode_switch.setChecked(bool(enabled))
             self.dark_mode_switch.blockSignals(False)
 
+        # 应用基础主题样式
         self.apply_base_theme_styles()
 
+        # 刷新当前显示的面板内容
         current_item = self.parent_list.currentItem() if self.parent_list else None
         if current_item:
             current_text = current_item.text()
+            print(f"🔄 刷新当前面板: {current_text}")
+            self.switch_to_parent_content(current_text)
     
     def load_collapse_threshold(self):
         """加载文本折叠阈值"""
         try:
-            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
-            if os.path.exists(settings_path):
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-                    return settings.get('collapse_threshold', 500)
+            config = self._read_config()
+            ui_settings = ((config.get('app') or {}).get('ui') or {})
+            return ui_settings.get('collapse_threshold', 500)
         except Exception as e:
             print(f"加载折叠阈值失败: {e}")
         return 500  # 默认值
@@ -1335,17 +1314,11 @@ class SettingsDialog(QDialog):
     def save_collapse_threshold(self, value):
         """保存文本折叠阈值"""
         try:
-            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
-            settings = {}
-            if os.path.exists(settings_path):
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-            
-            settings['collapse_threshold'] = value
-            
-            with open(settings_path, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, indent=2, ensure_ascii=False)
-            
+            config = self._read_config()
+            ui_settings = self._ensure_ui_section(config)
+            ui_settings['collapse_threshold'] = value
+            self._write_config(config)
+
             # 更新 chat_area.py 中的阈值
             from chat_area import CollapsibleBubbleLabel
             CollapsibleBubbleLabel.COLLAPSE_THRESHOLD = value
@@ -1357,11 +1330,9 @@ class SettingsDialog(QDialog):
     def load_preview_length(self):
         """加载收起时显示的字符数"""
         try:
-            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
-            if os.path.exists(settings_path):
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-                    return settings.get('preview_length', 300)
+            config = self._read_config()
+            ui_settings = ((config.get('app') or {}).get('ui') or {})
+            return ui_settings.get('preview_length', 300)
         except Exception as e:
             print(f"加载预览长度失败: {e}")
         return 300  # 默认值
@@ -1369,17 +1340,11 @@ class SettingsDialog(QDialog):
     def save_preview_length(self, value):
         """保存收起时显示的字符数"""
         try:
-            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
-            settings = {}
-            if os.path.exists(settings_path):
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-            
-            settings['preview_length'] = value
-            
-            with open(settings_path, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, indent=2, ensure_ascii=False)
-            
+            config = self._read_config()
+            ui_settings = self._ensure_ui_section(config)
+            ui_settings['preview_length'] = value
+            self._write_config(config)
+
             # 更新 chat_area.py 中的预览长度
             from chat_area import CollapsibleBubbleLabel
             CollapsibleBubbleLabel.PREVIEW_LENGTH = value

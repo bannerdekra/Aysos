@@ -56,11 +56,11 @@ class BaiduSearcher:
         self.search_endpoint = "/v2/ai_search/web_search"
         
         if not self.api_key:
-            print("[百度搜索] ⚠️ 环境变量 'Baidu Search-APIKEY' 未设置")
+            print("[百度搜索] 环境变量 'Baidu Search-APIKEY' 未设置")
         else:
-            print("[百度搜索] ✅ API Key 已加载")
+            print("[百度搜索] API Key 已加载")
         
-        # 🔧 自动禁用代理（百度搜索是国内服务）
+        # 自动禁用代理（百度搜索是国内服务）
         self._disable_proxy()
     
     def _disable_proxy(self):
@@ -68,9 +68,9 @@ class BaiduSearcher:
         try:
             from api_config import disable_proxy
             disable_proxy()
-            print("[百度搜索] 🚫 已禁用代理（国内服务）")
+            print("[百度搜索] 已禁用代理（国内服务）")
         except Exception as e:
-            print(f"[百度搜索] ⚠️ 代理配置失败: {e}")
+            print(f"[百度搜索] 代理配置失败: {e}")
     
     def get_tool_schema(self) -> Dict:
         """
@@ -176,12 +176,12 @@ class BaiduSearcher:
             # 解析响应
             parsed_result = self._parse_response(result)
             
-            print(f"[百度搜索] ✅ 成功获取 {len(parsed_result.get('data', {}).get('results', []))} 条结果")
+            print(f"[百度搜索] 成功获取 {len(parsed_result.get('data', {}).get('results', []))} 条结果")
             return parsed_result
             
         except requests.exceptions.Timeout:
             error_msg = "请求超时，请稍后重试"
-            print(f"[百度搜索] ❌ {error_msg}")
+            print(f"[百度搜索] {error_msg}")
             return {
                 "success": False,
                 "error": error_msg
@@ -303,119 +303,4 @@ def baidu_search(query: str, top_k: int = 5) -> Dict[str, Any]:
     searcher = get_baidu_searcher()
     return searcher.search(query=query, top_k=top_k)
 
-
-# 测试代码
-if __name__ == "__main__":
-    print("=" * 80)
-    print("百度搜索工具测试")
-    print("=" * 80)
-    
-    # 测试工具 Schema
-    print("\n📋 工具 Schema:")
-    print(json.dumps(BaiduSearcher.TOOL_SCHEMA, indent=2, ensure_ascii=False))
-    
-    # 初始化搜索器
-    searcher = BaiduSearcher()
-    
-    # 测试 1: 基础搜索
-    print("\n" + "=" * 80)
-    print("测试 1: 基础搜索（无高级参数）")
-    print("=" * 80)
-    test_query_1 = "Python 3.13 新特性"
-    print(f"\n🔍 搜索: {test_query_1}")
-    
-    result_1 = searcher.search(test_query_1, top_k=3)
-    
-    if result_1["success"]:
-        print("\n✅ 搜索成功！")
-        print(f"\n📝 AI 摘要:\n{result_1['data']['summary'][:200]}...")
-        print(f"\n📚 搜索结果 ({len(result_1['data']['results'])} 条):")
-        for i, item in enumerate(result_1['data']['results'], 1):
-            print(f"\n{i}. {item['title']}")
-            print(f"   🔗 {item['url']}")
-    else:
-        print(f"\n❌ 搜索失败: {result_1['error']}")
-    
-    # 测试 2: 使用时效性过滤（天气查询）
-    print("\n" + "=" * 80)
-    print("测试 2: 使用时效性过滤 - 天气查询")
-    print("=" * 80)
-    test_query_2 = "广州今天天气"
-    print(f"\n🔍 搜索: {test_query_2}")
-    print("⏰ 时效性: day (最近一天)")
-    
-    result_2 = searcher.search(
-        test_query_2, 
-        top_k=5,
-        search_recency_filter="day"  # 只查询最近一天的信息
-    )
-    
-    if result_2["success"]:
-        print("\n✅ 搜索成功！")
-        print(f"\n📝 AI 摘要:\n{result_2['data']['summary'][:300]}...")
-        print(f"\n📚 搜索结果 ({len(result_2['data']['results'])} 条):")
-        for i, item in enumerate(result_2['data']['results'][:3], 1):
-            print(f"\n{i}. {item['title']}")
-            print(f"   🔗 {item['url']}")
-    else:
-        print(f"\n❌ 搜索失败: {result_2['error']}")
-    
-    # 测试 3: 使用网站过滤（权威站点）
-    print("\n" + "=" * 80)
-    print("测试 3: 使用网站过滤 - 限定权威气象网站")
-    print("=" * 80)
-    test_query_3 = "北京天气预报"
-    weather_sites = ["www.weather.com.cn", "www.cma.gov.cn"]
-    print(f"\n🔍 搜索: {test_query_3}")
-    print(f"🌐 限定网站: {', '.join(weather_sites)}")
-    
-    result_3 = searcher.search(
-        test_query_3,
-        top_k=5,
-        site_filter=weather_sites  # 只在权威气象网站搜索
-    )
-    
-    if result_3["success"]:
-        print("\n✅ 搜索成功！")
-        print(f"\n📝 AI 摘要:\n{result_3['data']['summary'][:300]}...")
-        print(f"\n📚 搜索结果 ({len(result_3['data']['results'])} 条):")
-        for i, item in enumerate(result_3['data']['results'][:3], 1):
-            print(f"\n{i}. {item['title']}")
-            print(f"   🔗 {item['url']}")
-    else:
-        print(f"\n❌ 搜索失败: {result_3['error']}")
-    
-    # 测试 4: 组合使用（时效性 + 网站过滤）
-    print("\n" + "=" * 80)
-    print("测试 4: 组合高级参数 - 时效性 + 网站过滤")
-    print("=" * 80)
-    test_query_4 = "上海明天天气"
-    print(f"\n🔍 搜索: {test_query_4}")
-    print("⏰ 时效性: day (最近一天)")
-    print(f"🌐 限定网站: {', '.join(weather_sites)}")
-    
-    result_4 = searcher.search(
-        test_query_4,
-        top_k=5,
-        search_recency_filter="day",
-        site_filter=weather_sites
-    )
-    
-    if result_4["success"]:
-        print("\n✅ 搜索成功！")
-        print(f"\n📝 AI 摘要:\n{result_4['data']['summary'][:300]}...")
-        print(f"\n📚 搜索结果 ({len(result_4['data']['results'])} 条):")
-        for i, item in enumerate(result_4['data']['results'][:3], 1):
-            print(f"\n{i}. {item['title']}")
-            print(f"   🔗 {item['url']}")
-    else:
-        print(f"\n❌ 搜索失败: {result_4['error']}")
-    
-    print("\n" + "=" * 80)
-    print("🎉 测试完成！")
-    print("=" * 80)
-    print("\n💡 提示:")
-    print("  • search_recency_filter: 'day'/'week'/'month'/'year' - 用于实时信息查询")
-    print("  • site_filter: ['domain1.com', 'domain2.com'] - 限定权威网站，提高准确性")
-    print("  • 组合使用可以获得最精准的实时信息（特别是天气、新闻等）")
 

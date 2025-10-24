@@ -28,10 +28,10 @@ class ToolExecutor:
             enabled_engines = search_config.get_enabled_engines()
             primary_engine = search_config.get_primary_engine()
             
-            print(f"[工具执行器] 🔍 搜索引擎配置: 启用 {enabled_engines}, 优先 {primary_engine}")
+            print(f"[工具执行器] 搜索引擎配置: 启用 {enabled_engines}, 优先 {primary_engine}")
             
         except Exception as e:
-            print(f"[工具执行器] ⚠️ 加载搜索引擎配置失败: {e}，使用默认配置")
+            print(f"[工具执行器] 加载搜索引擎配置失败: {e}，使用默认配置")
             enabled_engines = ["baidu", "google"]
             primary_engine = "baidu"
         
@@ -59,10 +59,10 @@ class ToolExecutor:
                     schema=searcher.get_tool_schema(),
                     description=f"百度搜索 - 获取实时网络信息（中文内容优先）{priority_tag}"
                 )
-                print(f"[工具执行器] ✅ 已注册: baidu_search{priority_tag}")
+                print(f"[工具执行器] 已注册: baidu_search{priority_tag}")
                 
             except Exception as e:
-                print(f"[工具执行器] ⚠️ 百度搜索工具注册失败: {e}")
+                print(f"[工具执行器] 百度搜索工具注册失败: {e}")
         
         # 注册 Google 搜索工具
         if "google" in engines_to_register:
@@ -77,10 +77,10 @@ class ToolExecutor:
                     schema=google_searcher.get_tool_schema(),
                     description=f"Google搜索 - 获取国际信息和英文内容{priority_tag}"
                 )
-                print(f"[工具执行器] ✅ 已注册: google_search{priority_tag}")
+                print(f"[工具执行器] 已注册: google_search{priority_tag}")
                 
             except Exception as e:
-                print(f"[工具执行器] ⚠️ Google搜索工具注册失败: {e}")
+                print(f"[工具执行器] Google搜索工具注册失败: {e}")
         
         # 注册文档解析工具
         try:
@@ -95,10 +95,25 @@ class ToolExecutor:
                 schema=get_document_parser_tool_schema(),
                 description="文档解析工具 - 读取PDF、图片(OCR)、文本文件内容"
             )
-            print("[工具执行器] ✅ 已注册: read_document (文档解析)")
+            print("[工具执行器] 已注册: read_document (文档解析)")
             
         except Exception as e:
-            print(f"[工具执行器] ⚠️ 文档解析工具注册失败: {e}")
+            print(f"[工具执行器] 文档解析工具注册失败: {e}")
+        
+        # 注册系统时间工具
+        try:
+            from system_time_tool import get_system_time, TOOL_SCHEMA
+            
+            self.register_tool(
+                name="get_system_time",
+                function=get_system_time,
+                schema=TOOL_SCHEMA,
+                description="系统时间工具 - 获取当前日期、时间、星期等信息"
+            )
+            print("[工具执行器] 已注册: get_system_time (系统时间)")
+            
+        except Exception as e:
+            print(f"[工具执行器] 系统时间工具注册失败: {e}")
     
     def register_tool(
         self,
@@ -179,7 +194,7 @@ class ToolExecutor:
         # 检查工具是否存在
         if not self.has_tool(tool_name):
             error_msg = f"工具 '{tool_name}' 未注册"
-            print(f"[工具执行器] ❌ {error_msg}")
+            print(f"[工具执行器] {error_msg}")
             return {
                 "success": False,
                 "tool_name": tool_name,
@@ -197,10 +212,10 @@ class ToolExecutor:
             try:
                 result_json = json.dumps(result, ensure_ascii=False, indent=2)
             except Exception as e:
-                print(f"[工具执行器] ⚠️ JSON序列化失败，使用字符串: {e}")
+                print(f"[工具执行器] JSON序列化失败，使用字符串: {e}")
                 result_json = str(result)
             
-            print(f"[工具执行器] ✅ 工具执行成功")
+            print(f"[工具执行器] 工具执行成功")
             
             return {
                 "success": True,
@@ -211,7 +226,7 @@ class ToolExecutor:
             
         except Exception as e:
             error_msg = f"工具执行失败: {str(e)}"
-            print(f"[工具执行器] ❌ {error_msg}")
+            print(f"[工具执行器] {error_msg}")
             import traceback
             traceback.print_exc()
             
@@ -257,7 +272,7 @@ class ToolExecutor:
                 results.append(result)
                 
             except Exception as e:
-                print(f"[工具执行器] ❌ 工具调用解析失败: {e}")
+                print(f"[工具执行器] 工具调用解析失败: {e}")
                 results.append({
                     "success": False,
                     "error": f"工具调用解析失败: {str(e)}"
@@ -315,52 +330,3 @@ def get_all_tool_schemas() -> List[Dict]:
     executor = get_tool_executor()
     return executor.get_tool_schemas()
 
-
-# 测试代码
-if __name__ == "__main__":
-    print("=" * 50)
-    print("工具执行器测试")
-    print("=" * 50)
-    
-    # 创建执行器
-    executor = ToolExecutor()
-    
-    # 显示可用工具
-    print("\n" + executor.get_tool_info())
-    
-    # 显示工具 Schema
-    print("\n工具 Schema:")
-    for schema in executor.get_tool_schemas():
-        print(json.dumps(schema, indent=2, ensure_ascii=False))
-    
-    # 测试工具执行
-    print("\n测试工具执行:")
-    test_arguments = {
-        "query": "今天北京天气",
-        "top_k": 3
-    }
-    
-    result = executor.execute_tool("baidu_search", test_arguments)
-    
-    if result["success"]:
-        print("\n✅ 工具执行成功！")
-        print(f"\n结果预览:\n{result['result_json'][:500]}...")
-    else:
-        print(f"\n❌ 工具执行失败: {result['error']}")
-    
-    # 测试批量执行
-    print("\n测试批量工具调用:")
-    tool_calls = [
-        {
-            "id": "call_1",
-            "function": {
-                "name": "baidu_search",
-                "arguments": {"query": "Python教程", "top_k": 2}
-            }
-        }
-    ]
-    
-    results = executor.execute_tool_calls(tool_calls)
-    print(f"\n执行了 {len(results)} 个工具调用")
-    for i, r in enumerate(results, 1):
-        print(f"  {i}. {r['tool_name']}: {'成功' if r['success'] else '失败'}")

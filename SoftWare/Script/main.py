@@ -5,7 +5,7 @@ from PyQt6.QtCore import QRunnable, QThreadPool, pyqtSignal, QObject, QTimer
 from chat_ui import ChatWindow
 from api_client import get_ai_reply, get_topic_from_reply
 from storage_config import StorageConfig
-from dialogs import ChatConfigDialog, DSNConfigDialog, show_connection_result
+from dialogs import ChatConfigDialog, DSNConfigDialog, show_connection_result, show_delete_confirmation
 
 
 class WorkerSignals(QObject):
@@ -55,15 +55,16 @@ class ChatManager:
         self.current_conversation_id = None
         self.current_worker = None
         self.topic_worker = None
-        self.is_first_message = True  # 标记是否为当前对话的第一条消息
+        self.conversation_round_count = 0  # 对话轮数计数器（一问一答为一轮）
         self.first_user_message = None  # 保存第一条用户消息，用于生成标题
+        self._deleting_conversation = False  # 防止删除时重复触发
         
         # 连接信号
         self.chat_window.send_message_signal.connect(self.handle_send_message)
         self.chat_window.sidebar.conversation_clicked.connect(self.load_conversation_messages)
         self.chat_window.sidebar.new_conversation_signal.connect(self.start_new_conversation)
-        self.chat_window.sidebar.delete_conversation_signal.connect(self.delete_conversation)
-        self.chat_window.sidebar.rename_conversation_signal.connect(self.rename_conversation)
+        self.chat_window.delete_conversation_signal.connect(self.delete_conversation)
+        self.chat_window.rename_conversation_signal.connect(self.rename_conversation)
         self.chat_window.sidebar.refresh_conversations_signal.connect(self.refresh_conversations)
         
         # 连接设置信号
@@ -212,8 +213,8 @@ class ChatManager:
         self.chat_window.set_current_conversation(conversation_id)
         messages = self.storage.get_history(conversation_id)
         
-        # 根据消息数量判断是否为第一条消息
-        self.is_first_message = len(messages) == 0
+        # 根据消息数量计算对话轮数（一问一答为一轮）
+        self.conversation_round_count = len(messages) // 2
         
         # 【新增】同步 Gemini 上下文历史
         # 如果使用 Gemini 且有历史记录，需要恢复 Chat Session
@@ -316,7 +317,7 @@ class ChatManager:
     def start_new_conversation(self):
         """开始新对话"""
         self.current_conversation_id = self.storage.create_new_conversation()
-        self.is_first_message = True
+        self.conversation_round_count = 0
         self.first_user_message = None
         
         # 清空聊天区域
@@ -326,49 +327,77 @@ class ChatManager:
         self.load_conversations()
 
     def clear_current_conversation(self): 
+        """清除当前对话"""
         if self.current_conversation_id:
+            # 获取当前对话标题（如果有的话）
+            conv_title = "当前对话"
+            conversations = self.storage.get_all_conversations()
+            for conv in conversations:
+                if isinstance(conv, tuple):
+                    if conv[0] == self.current_conversation_id:
+                        conv_title = conv[1]
+                        break
+                elif conv.get('id') == self.current_conversation_id:
+                    conv_title = conv.get('title', '当前对话')
+                    break
+            
+            # 显示确认对话框
+            if not show_delete_confirmation(self.chat_window, conv_title):
+                print(f"用户取消清除对话")
+                return  # 用户点击取消，不执行删除
+            
+            print(f"用户确认清除对话: {self.current_conversation_id}")
             self.storage.delete_conversation(self.current_conversation_id)
             self.load_conversations()
             self.start_new_conversation()
         else:
             print("没有当前对话ID，无法清除对话记录")
 
-    def delete_conversation(self, conv_id):
+    def delete_conversation(self, conv_id, conv_title="对话"):
         """删除指定的对话"""
-        print(f"准备删除对话: {conv_id}")
+        # 防止重复删除
+        if self._deleting_conversation:
+            return
         
-        # 先从存储删除
-        self.storage.delete_conversation(conv_id)
-        print(f"对话已从存储删除: {conv_id}")
+        self._deleting_conversation = True
         
-        # 处理当前对话的逻辑
-        if conv_id == self.current_conversation_id:
-            # 清空聊天区域
-            self.chat_window.chat_area.clear_chat_history_display()
-            self.current_conversation_id = None
+        try:
+            print(f"准备删除对话: {conv_id}")
+
+            # 先从存储删除（已在 UI 中确认，避免重复弹窗）
+            self.storage.delete_conversation(conv_id)
+            print(f"对话已从存储删除: {conv_id}")
             
-            # 获取删除后的对话列表
-            conversations_data = self.storage.get_all_conversations()
-            
-            if conversations_data:
-                # 如果还有其他对话，切换到第一个
-                first_conv = conversations_data[0]
-                if isinstance(first_conv, tuple):
-                    first_conv_id = first_conv[0]
-                else:
-                    first_conv_id = first_conv['id']
-                
-                print(f"切换到第一个对话: {first_conv_id}")
-                self.load_conversation_messages(first_conv_id)
-            else:
-                # 如果没有其他对话，保持空白状态
-                print("没有其他对话，保持空白状态")
+            # 处理当前对话的逻辑
+            if conv_id == self.current_conversation_id:
+                # 清空聊天区域
+                self.chat_window.chat_area.clear_chat_history_display()
                 self.current_conversation_id = None
-                self.is_first_message = True
-                self.first_user_message = None
-        
-        # 重新加载对话列表（确保UI同步）
-        self.load_conversations()
+                
+                # 获取删除后的对话列表
+                conversations_data = self.storage.get_all_conversations()
+                
+                if conversations_data:
+                    # 如果还有其他对话，切换到第一个
+                    first_conv = conversations_data[0]
+                    if isinstance(first_conv, tuple):
+                        first_conv_id = first_conv[0]
+                    else:
+                        first_conv_id = first_conv['id']
+                    
+                    print(f"切换到第一个对话: {first_conv_id}")
+                    self.load_conversation_messages(first_conv_id)
+                else:
+                    # 如果没有其他对话，保持空白状态
+                    print("没有其他对话，保持空白状态")
+                    self.current_conversation_id = None
+                    self.conversation_round_count = 0
+                    self.first_user_message = None
+            
+            # 重新加载对话列表（确保UI同步）
+            self.load_conversations()
+        finally:
+            self._deleting_conversation = False
 
     def rename_conversation(self, conv_id, new_title):
         """重命名对话"""
@@ -417,8 +446,8 @@ class ChatManager:
             print("没有当前对话，创建新对话")
             self.start_new_conversation()
         
-        # 如果是第一条消息，保存用户输入用于生成标题
-        if self.is_first_message:
+        # 如果是第一条消息，保存用户输入（用于之后可能的标题生成）
+        if self.conversation_round_count == 0:
             self.first_user_message = user_input
         
         # 【修复Bug2】保存用户消息到存储时，将附件信息一起保存
@@ -498,9 +527,11 @@ class ChatManager:
             last_msg = saved_messages[-1]
             print(f"[DEBUG] 保存后验证: 长度={len(last_msg['content'])}, 预览={last_msg['content'][:80]}...")
         
-        # 如果这是对话的第一条消息，生成标题
-        if self.is_first_message:
-            self.is_first_message = False
+        # 增加对话轮数
+        self.conversation_round_count += 1
+        
+        # 如果达到3轮对话，生成标题
+        if self.conversation_round_count == 3:
             # 【修复】使用 AI 回复内容生成标题，特别是包含附件分析的情况
             self.generate_conversation_title(response)
         

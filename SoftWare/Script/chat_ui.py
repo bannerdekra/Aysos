@@ -36,7 +36,7 @@ class ChatWindow(QWidget):
     # 对话管理信号
     new_conversation_signal = pyqtSignal()
     switch_conversation_signal = pyqtSignal(str)
-    delete_conversation_signal = pyqtSignal(str)
+    delete_conversation_signal = pyqtSignal(str, str)
     rename_conversation_signal = pyqtSignal(str, str)  # conversation_id, new_title
     
     # 消息编辑和删除信号
@@ -381,7 +381,7 @@ class ChatWindow(QWidget):
         """删除对话确认"""
         if show_delete_confirmation(self, conv_title):
             print(f"用户确认删除对话: {conv_title} (ID: {conv_id})")
-            self.delete_conversation_signal.emit(conv_id)
+            self.delete_conversation_signal.emit(conv_id, conv_title)
 
     def show_rename_dialog(self, conv_id, current_title):
         """显示重命名对话框"""

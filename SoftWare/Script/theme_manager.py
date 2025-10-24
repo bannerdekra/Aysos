@@ -23,6 +23,37 @@ class ThemeManager(QObject):
         
         # 加载设置
         self.load_settings()
+
+    @staticmethod
+    def _config_path():
+        return os.path.join(os.path.dirname(__file__), 'config.json')
+
+    def _read_config(self):
+        try:
+            with open(self._config_path(), 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print("[主题] 警告: config.json 未找到，使用默认配置")
+        except Exception as e:
+            print(f"[主题] 读取 config.json 失败: {e}")
+        return {}
+
+    def _write_config(self, config_data):
+        try:
+            with open(self._config_path(), 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[主题] 写入 config.json 失败: {e}")
+
+    def _update_theme_section(self, theme_section):
+        theme_section['dark_mode_enabled'] = self.dark_mode_enabled
+        theme_section['auto_dark_mode'] = self.auto_dark_mode
+        theme_section['custom_background_path'] = self.custom_background_path
+
+    def _apply_theme_section(self, theme_section):
+        self.dark_mode_enabled = theme_section.get('dark_mode_enabled', False)
+        self.auto_dark_mode = theme_section.get('auto_dark_mode', False)
+        self.custom_background_path = theme_section.get('custom_background_path', '')
         
     def set_main_window(self, main_window):
         """设置主窗口引用"""
@@ -468,34 +499,25 @@ class ThemeManager(QObject):
     
     def save_settings(self):
         """保存设置到文件"""
-        settings = {
-            'dark_mode_enabled': self.dark_mode_enabled,
-            'auto_dark_mode': self.auto_dark_mode,
-            'custom_background_path': self.custom_background_path
-        }
-        
+        config_data = self._read_config()
+        app_section = config_data.setdefault('app', {})
+        theme_section = app_section.setdefault('theme', {})
+        self._update_theme_section(theme_section)
+
         try:
-            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
-            with open(settings_path, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, indent=2, ensure_ascii=False)
+            self._write_config(config_data)
         except Exception as e:
             print(f"保存主题设置失败: {e}")
     
     def load_settings(self):
         """从文件加载设置"""
         try:
-            settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
-            if os.path.exists(settings_path):
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-                    
-                self.dark_mode_enabled = settings.get('dark_mode_enabled', False)
-                self.auto_dark_mode = settings.get('auto_dark_mode', False)
-                self.custom_background_path = settings.get('custom_background_path', '')
-                
-                # 如果启用了自动模式，启动定时器
-                if self.auto_dark_mode:
-                    self.set_auto_mode(True)
+            config_data = self._read_config()
+            theme_section = ((config_data.get('app') or {}).get('theme') or {})
+            self._apply_theme_section(theme_section)
+
+            if self.auto_dark_mode:
+                self.set_auto_mode(True)
                     
         except Exception as e:
             print(f"加载主题设置失败: {e}")

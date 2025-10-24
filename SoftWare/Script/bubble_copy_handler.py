@@ -1,5 +1,5 @@
-from PyQt6.QtWidgets import QPushButton, QApplication, QMessageBox, QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel
-from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtSignal
+from PyQt6.QtWidgets import QPushButton, QApplication, QMessageBox, QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QWidget
+from PyQt6.QtCore import Qt, QTimer, QPoint, pyqtSignal, QEvent
 from PyQt6.QtGui import QClipboard
 
 class CopyButton(QPushButton):
@@ -236,6 +236,8 @@ class BubbleCopyMixin:
         
         # 启用鼠标追踪
         self.setMouseTracking(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self._register_mouse_tracking_targets()
         
     def _copy_text_to_clipboard(self):
         """复制文本到剪贴板"""
@@ -316,7 +318,57 @@ class BubbleCopyMixin:
             parent = parent.parent()
         return None
 
-# ...existing code...
+    def _register_mouse_tracking_targets(self):
+        """为子控件开启鼠标追踪并添加事件过滤"""
+        for child in self.findChildren(QWidget):
+            # 跳过功能按钮（它们挂在顶层窗口）
+            if isinstance(child, (CopyButton, DeleteButton, EditButton)):
+                continue
+            child.setMouseTracking(True)
+            child.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+            child.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        """捕获子控件的鼠标事件以更新按钮位置"""
+        if event.type() in (QEvent.Type.MouseMove, QEvent.Type.HoverMove):
+            self._handle_child_mouse_activity(obj, event)
+        elif event.type() in (QEvent.Type.Enter, QEvent.Type.HoverEnter):
+            self._handle_child_mouse_activity(obj, event, fallback_center=True)
+        return super().eventFilter(obj, event)
+
+    def _handle_child_mouse_activity(self, widget, event, fallback_center=False):
+        """根据子控件事件计算相对位置并更新按钮高度"""
+        if not hasattr(self, 'copy_button') or not self.copy_button:
+            return
+
+        try:
+            if hasattr(event, 'position'):
+                local_pos = event.position()
+            elif hasattr(event, 'pos'):
+                local_pos = event.pos()
+            else:
+                local_pos = None
+
+            if local_pos is not None and hasattr(local_pos, 'toPoint'):
+                local_point = local_pos.toPoint()
+            elif local_pos is not None:
+                local_point = QPoint(int(local_pos.x()), int(local_pos.y()))
+            else:
+                local_point = None
+
+            if local_point is not None:
+                global_pos = widget.mapToGlobal(local_point)
+                bubble_point = self.mapFromGlobal(global_pos)
+                clamped_y = max(0, min(int(bubble_point.y()), self.height()))
+            elif fallback_center:
+                clamped_y = self.height() // 2
+            else:
+                return
+
+            self.last_mouse_y = clamped_y
+            self._show_buttons(clamped_y)
+        except Exception:
+            pass
 
     def _update_buttons_position(self, mouse_y_in_bubble):
         """更新按钮位置"""
@@ -483,9 +535,9 @@ class BubbleCopyMixin:
 def create_copyable_bubble_class(base_label_class):
     """工厂函数：创建带功能按钮的气泡类"""
     class CopyableBubbleLabel(BubbleCopyMixin, base_label_class):
-        def __init__(self, text, side='left', parent=None):
+        def __init__(self, text, side='left', parent=None, is_history=False):
             # 可选的调试打印，必要时打开
             # print(f"创建功能气泡: text={text[:20]}..., side={side}")
-            super().__init__(text=text, side=side, parent=parent)
+            super().__init__(text=text, side=side, parent=parent, is_history=is_history)
 
     return CopyableBubbleLabel

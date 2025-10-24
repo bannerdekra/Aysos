@@ -32,11 +32,12 @@ class CollapsibleBubbleLabel(QWidget):
     COLLAPSE_THRESHOLD = 500  # 字符数阈值
     PREVIEW_LENGTH = 300      # 收起时显示的字符数
     
-    def __init__(self, text, side='left', parent=None):
+    def __init__(self, text, side='left', parent=None, is_history=False):
         super().__init__(parent)
         self.full_text = text
         self.side = side
-        self.is_collapsed = len(text) > self.COLLAPSE_THRESHOLD  # 长文本默认收起
+        # 历史消息默认折叠（如果超过阈值），新消息也默认折叠
+        self.is_collapsed = len(text) > self.COLLAPSE_THRESHOLD
         
         # 初始化UI
         self.init_ui()
@@ -118,7 +119,10 @@ class CollapsibleBubbleLabel(QWidget):
         
         # 调整大小以适应新内容
         self.adjustSize()
-        self.parent().adjustSize() if self.parent() else None
+        if self.parent():
+            self.parent().adjustSize()
+            # 触发父组件的 resizeEvent 以更新功能按钮位置
+            self.parent().updateGeometry()
     
     def setText(self, text):
         """更新文本内容（保持兼容性）"""
@@ -146,7 +150,7 @@ class CollapsibleBubbleLabel(QWidget):
 
 
 class BubbleLabel(QLabel):
-    def __init__(self, text, side='left', parent=None):
+    def __init__(self, text, side='left', parent=None, is_history=False):
         super().__init__(parent)
         self.setWordWrap(True)
         self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -169,16 +173,20 @@ CopyableCollapsibleBubbleLabel = create_copyable_bubble_class(CollapsibleBubbleL
 
 # 加载用户配置的折叠设置
 def load_collapse_settings():
-    """从配置文件加载折叠设置"""
+    """从统一配置文件加载折叠设置"""
     try:
         import json
-        settings_path = os.path.join(os.path.dirname(__file__), 'theme_settings.json')
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-                CollapsibleBubbleLabel.COLLAPSE_THRESHOLD = settings.get('collapse_threshold', 500)
-                CollapsibleBubbleLabel.PREVIEW_LENGTH = settings.get('preview_length', 300)
-                print(f"[折叠设置] 阈值: {CollapsibleBubbleLabel.COLLAPSE_THRESHOLD}, 预览长度: {CollapsibleBubbleLabel.PREVIEW_LENGTH}")
+        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        if not os.path.exists(config_path):
+            return
+
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        ui_settings = ((config.get('app') or {}).get('ui') or {})
+        CollapsibleBubbleLabel.COLLAPSE_THRESHOLD = ui_settings.get('collapse_threshold', CollapsibleBubbleLabel.COLLAPSE_THRESHOLD)
+        CollapsibleBubbleLabel.PREVIEW_LENGTH = ui_settings.get('preview_length', CollapsibleBubbleLabel.PREVIEW_LENGTH)
+        print(f"[折叠设置] 阈值: {CollapsibleBubbleLabel.COLLAPSE_THRESHOLD}, 预览长度: {CollapsibleBubbleLabel.PREVIEW_LENGTH}")
     except Exception as e:
         print(f"[折叠设置] 加载失败: {e}")
 
@@ -883,9 +891,9 @@ class ChatArea(QWidget):
         
         # 根据角色选择气泡类型：Agent 使用可折叠气泡，用户使用普通气泡
         if role == 'assistant':
-            bubble = CopyableCollapsibleBubbleLabel(content, side='left', parent=message_row)
+            bubble = CopyableCollapsibleBubbleLabel(content, side='left', parent=message_row, is_history=True)
         else:
-            bubble = CopyableBubbleLabel(content, side='right' if role == 'user' else 'left', parent=message_row)
+            bubble = CopyableBubbleLabel(content, side='right' if role == 'user' else 'left', parent=message_row, is_history=True)
             bubble.setWordWrap(True)
         
         # 设置气泡最大宽度为聊天区域宽度的60%

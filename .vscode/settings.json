@@ -4,6 +4,20 @@
     // Set the workspace Python interpreter to the 'chatbot' conda environment.
     // Update the paths below if your Anaconda/Miniconda is installed in a different location.
     "python.defaultInterpreterPath": "E:\\Anaconda\\envs\\chatbot\\python.exe",
-    // Optional: path to conda executable (helps some setups detect conda envs)
-    "python.condaPath": "E:\\Anaconda\\Scripts\\conda.exe"
+        // Optional: path to conda executable (helps some setups detect conda envs)
+        "python.condaPath": "E:\\Anaconda\\Scripts\\conda.exe",
+        "python.terminal.activateEnvironment": true,
+        "terminal.integrated.defaultProfile.windows": "Conda Chatbot (PowerShell)",
+        "terminal.integrated.profiles.windows": {
+            "Conda Chatbot (PowerShell)": {
+                "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "args": [
+                    "-NoExit",
+                    "-Command",
+                    "& 'E:\\Anaconda\\shell\\condabin\\conda-hook.ps1'; conda activate chatbot"
+                ],
+                "icon": "terminal-powershell"
+            }
+        },
+        "terminal.integrated.startIn": "workspace"
 }

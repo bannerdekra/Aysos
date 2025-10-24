@@ -20,16 +20,16 @@ class GoogleSearcher:
         self.base_url = "https://www.googleapis.com/customsearch/v1"
         
         if not self.api_key:
-            print("[Google搜索] ⚠️ 环境变量 'Google search-APIKEY' 或 'GOOGLE_SEARCH_APIKEY' 未设置")
+            print("[Google搜索] 环境变量 'Google search-APIKEY' 或 'GOOGLE_SEARCH_APIKEY' 未设置")
         else:
-            print("[Google搜索] ✅ API Key 已加载")
+            print("[Google搜索] API Key 已加载")
         
         if not self.search_engine_id:
-            print("[Google搜索] ⚠️ 环境变量 'GOOGLE_SEARCH_ENGINE_ID' 未设置")
+            print("[Google搜索] 环境变量 'GOOGLE_SEARCH_ENGINE_ID' 未设置")
         else:
-            print(f"[Google搜索] ✅ Search Engine ID 已加载: {self.search_engine_id[:10]}...")
+            print(f"[Google搜索] Search Engine ID 已加载: {self.search_engine_id[:10]}...")
         
-        # 🔧 自动启用代理（Google 需要代理）
+        # 自动启用代理（Google 需要代理）
         self._enable_proxy()
     
     def _enable_proxy(self):
@@ -37,9 +37,9 @@ class GoogleSearcher:
         try:
             from api_config import enable_proxy
             enable_proxy()
-            print("[Google搜索] 🌐 已启用代理")
+            print("[Google搜索] 已启用代理")
         except Exception as e:
-            print(f"[Google搜索] ⚠️ 代理启用失败: {e}")
+            print(f"[Google搜索] 代理启用失败: {e}")
     
     def search(self, query: str, num: int = 5, **kwargs) -> Dict[str, Any]:
         """
@@ -98,11 +98,11 @@ class GoogleSearcher:
             # 添加其他可选参数
             if 'dateRestrict' in kwargs:
                 params['dateRestrict'] = kwargs['dateRestrict']
-                print(f"[Google搜索] 🕒 时间限制: {kwargs['dateRestrict']}")
+                print(f"[Google搜索] 时间限制: {kwargs['dateRestrict']}")
             
             if 'siteSearch' in kwargs:
                 params['siteSearch'] = kwargs['siteSearch']
-                print(f"[Google搜索] 🌐 站点限制: {kwargs['siteSearch']}")
+                print(f"[Google搜索] 站点限制: {kwargs['siteSearch']}")
             
             # 发送请求
             response = requests.get(self.base_url, params=params, timeout=30)
@@ -113,7 +113,7 @@ class GoogleSearcher:
             return self._parse_response(data)
             
         except requests.exceptions.RequestException as e:
-            print(f"[Google搜索] ❌ 请求失败: {e}")
+            print(f"[Google搜索] 请求失败: {e}")
             return {
                 "success": False,
                 "error": f"搜索请求失败: {str(e)}"
@@ -168,7 +168,7 @@ class GoogleSearcher:
                 if len(summary) > 500:
                     summary = summary[:500] + "..."
             
-            print(f"[Google搜索] ✅ 成功获取 {len(results)} 条结果")
+            print(f"[Google搜索] 成功获取 {len(results)} 条结果")
             
             return {
                 "success": True,
@@ -179,7 +179,7 @@ class GoogleSearcher:
             }
             
         except Exception as e:
-            print(f"[Google搜索] ⚠️ 响应解析失败: {e}")
+            print(f"[Google搜索] 响应解析失败: {e}")
             import traceback
             traceback.print_exc()
             return {

@@ -352,26 +352,31 @@ class Sidebar(QWidget):
         
     def update_conversation_list(self, conversations):
         """更新对话列表"""
-        # 清空现有项目
+        # 清空现有项目 - 先断开信号连接
         for item in self.current_conversation_items:
+            try:
+                item.item_clicked.disconnect()
+                item.delete_requested.disconnect()
+                item.rename_requested.disconnect()
+            except Exception:
+                pass
+            item.setParent(None)
             item.deleteLater()
         self.current_conversation_items.clear()
-        
-        # 添加新项目
+
+        # 添加新项目（只连接一次信号）
         for conv in conversations:
             if isinstance(conv, dict):
-                # 字典格式
                 conv_id = conv['id']
                 title = conv['title']
             else:
-                # 元组格式 (id, title, updated_at)
                 conv_id, title, _ = conv
-                
+
             item_widget = ConversationListItem(conv_id, title, is_current=False)
             item_widget.item_clicked.connect(self.conversation_clicked.emit)
             item_widget.delete_requested.connect(self.delete_conversation_signal.emit)
             item_widget.rename_requested.connect(self.rename_conversation_signal.emit)
-            
+
             self.conversation_layout.addWidget(item_widget)
             self.current_conversation_items.append(item_widget)
 

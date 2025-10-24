@@ -1,0 +1,188 @@
+{
+  "_version": "1.0.2",
+  "_description": "Agent Chat 应用统一配置文件 - 所有配置项集中管理，替代旧的分散 JSON 文件",
+  "_last_updated": "2025-10-20",
+  "_migration_notes": "本配置文件已取代：api_settings.json, theme_settings.json, storage_config.json, search_engine_config.json, sd_config.json",
+  "_important": "此配置文件是应用唯一的配置入口。所有密钥通过环境变量名称配置，应用会从系统环境变量读取真实密钥值。",
+  "environment": {
+    "_comment": "环境变量配置 - 应用将从系统环境变量中读取这些变量名对应的值",
+    "_developer_notes": [
+      "所有密钥都通过环境变量名称配置，而非直接填写密钥",
+      "例如：如果 gemini_api_key_env 设置为 'GEMINI_API_KEY'，应用会从系统环境变量 GEMINI_API_KEY 中读取实际的密钥",
+      "这样做的好处：",
+      "  1. 不同开发环境只需设置本地环境变量，无需修改配置文件",
+      "  2. 可以安全地将配置文件提交到版本控制（不包含实际密钥）",
+      "  3. 支持快速切换不同的 API 密钥（只需改环境变量名）",
+      "如何使用：",
+      "  1. 在系统环境变量中创建：变量名 = 变量值（密钥）",
+      "  2. 在本文件对应位置填入环境变量名称",
+      "  3. 应用启动时自动从环境变量读取真实密钥"
+    ],
+    "gemini_api_key_env": "GEMINI_API_KEY",
+    "deepseek_api_key_env": "DeepSeek-APIKEY",
+    "claude_api_key_env": "CLAUDE_APIKEY",
+    "gpt4_api_key_env": "OPENAI_APIKEY",
+    "baidu_search_api_key_env": "Baidu Search-APIKEY",
+    "google_search_api_key_env": "Google search-APIKEY",
+    "google_search_engine_id_env": "GOOGLE_SEARCH_ENGINE_ID"
+  },
+  "app": {
+    "_comment": "应用基本设置，主要用于主窗口配置",
+    "name": "Agent Chat",
+    "version": "1.0.11",
+    "theme": {
+      "_comment": "主题设置 - 修改时需要同时更新 theme_manager.py 中的 enable_dark_mode()",
+      "_developer_notes": [
+        "dark_mode_enabled: 是否启用深色模式，改此值后需刷新 UI",
+        "auto_dark_mode: 是否自动跟随系统深色模式（Windows 10+）",
+        "custom_background_path: 自定义背景图片路径，留空则使用默认背景",
+        "is_video_background: 是否使用视频作为背景（CPU 消耗较大）"
+      ],
+      "dark_mode_enabled": false,
+      "auto_dark_mode": false,
+      "custom_background_path": "C:/Users/Lenovo/Desktop/test1.mp4",
+      "is_video_background": true
+    },
+    "ui": {
+      "_comment": "UI 显示设置 - 控制气泡折叠和预览行为",
+      "_developer_notes": [
+        "collapse_threshold: Agent 气泡内容字数超过此值时显示折叠按钮（当前默认 300）",
+        "preview_length: Agent 气泡折叠时显示的预览内容字数（当前默认 100）",
+        "user_bubble_collapse_threshold: 用户气泡内容字数超过此值时自动折叠（当前默认 300）",
+        "user_and_agent_preview_length: 用户气泡折叠时的预览字数（当前默认 100）",
+        "修改这些值需在 chat_area.py 中同时更新对应的折叠逻辑"
+      ],
+      "collapse_threshold": 300,
+      "preview_length": 100,
+      "user_bubble_collapse_threshold": 300,
+      "user_and_agent_preview_length": 100
+    }
+  },
+  "storage": {
+    "_comment": "数据存储设置 - 已统一为文件存储模式，不再支持 DSN 数据库",
+    "_developer_notes": [
+      "type: 存储类型，目前仅支持 'file'（已移除 DSN 支持）",
+      "file_storage.base_path: 对话数据存储的根目录，默认为 C:\\AgentData",
+      "auto_create_folder: 是否自动创建存储文件夹",
+      "conversation_subfolder: 对话文件存储的子文件夹名",
+      "修改存储路径会影响 FileStorageManager 和 storage_config.py 中的数据读写"
+    ],
+    "type": "file",
+    "file_storage": {
+      "base_path": "C:\\AgentData",
+      "auto_create_folder": true,
+      "folder_name": "AgentData",
+      "conversation_subfolder": "conversations"
+    },
+    "last_migration": null
+  },
+  "api": {
+    "_comment": "API 提供商设置 - 管理多个 AI 模型提供商的配置。所有密钥通过环境变量读取。",
+    "_developer_notes": [
+      "current_provider: 当前使用的 API 提供商（gemini/deepseek/claude/gpt4）",
+      "default_model: 当前提供商的默认模型",
+      "providers: 各提供商的详细配置",
+      "api_key_env: 环境变量名称，应用会从系统环境变量读取真实的密钥",
+      "api_url: API 服务器地址，留空则使用默认地址",
+      "修改时需同时更新 api_client.py 中的请求逻辑"
+    ],
+    "current_provider": "gemini",
+    "default_model": "gemini-2.5-flash",
+    "providers": {
+      "gemini": {
+        "_comment": "Google Gemini API 配置",
+        "_description": "使用 Google Gemini 模型进行 AI 对话",
+        "api_key_env": "GEMINI_API_KEY",
+        "api_url": "",
+        "model": "gemini-2.5-flash",
+        "display_name": "Gemini",
+        "enabled": true
+      },
+      "deepseek": {
+        "_comment": "DeepSeek API 配置",
+        "_description": "使用 DeepSeek 模型进行 AI 对话，需配置 API 密钥",
+        "api_key_env": "DEEPSEEK_APIKEY",
+        "api_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "display_name": "DeepSeek",
+        "enabled": false
+      },
+      "claude": {
+        "_comment": "Anthropic Claude API 配置",
+        "_description": "使用 Claude 模型进行 AI 对话，需配置 API 密钥",
+        "api_key_env": "CLAUDE_APIKEY",
+        "api_url": "",
+        "model": "claude-3-sonnet",
+        "display_name": "Claude",
+        "enabled": false
+      },
+      "gpt4": {
+        "_comment": "OpenAI GPT-4 API 配置",
+        "_description": "使用 GPT-4 模型进行 AI 对话，需配置 API 密钥",
+        "api_key_env": "OPENAI_APIKEY",
+        "api_url": "https://api.openai.com/v1",
+        "model": "gpt-4-turbo",
+        "display_name": "GPT-4",
+        "enabled": false
+      }
+    }
+  },
+  "search_engine": {
+    "_comment": "搜索引擎配置 - 用于网络搜索功能。密钥通过环境变量读取。",
+    "_developer_notes": [
+      "enabled_engines: 启用的搜索引擎列表（当前支持：baidu）",
+      "primary_engine: 主要使用的搜索引擎",
+      "fallback_enabled: 是否启用备用搜索引擎",
+      "selection_order: 搜索引擎优先级顺序",
+      "修改时需更新相关搜索实现逻辑"
+    ],
+    "enabled_engines": [
+      "baidu"
+    ],
+    "primary_engine": "baidu",
+    "fallback_enabled": false,
+    "selection_order": [
+      "baidu"
+    ],
+    "engines": {
+      "baidu": {
+        "_comment": "百度搜索配置",
+        "_description": "用于网络搜索功能",
+        "api_key_env": "BAIDU_SEARCH_APIKEY",
+        "enabled": true
+      },
+      "google": {
+        "_comment": "Google 搜索配置",
+        "_description": "用于网络搜索功能",
+        "api_key_env": "GOOGLE_SEARCH_APIKEY",
+        "engine_id_env": "GOOGLE_SEARCH_ENGINE_ID",
+        "enabled": false
+      }
+    }
+  },
+  "sd_diffusion": {
+    "_comment": "Stable Diffusion 图片生成配置 - 控制 AI 绘画的参数",
+    "_developer_notes": [
+      "sampler_name: 采样方法（DPM++, Euler, DDim 等）",
+      "scheduler: 噪声调度器（Karras 推荐用于图像质量）",
+      "steps: 生成步数，值越大质量越好但速度越慢（推荐 20-100）",
+      "cfg_scale: 对提示词的遵循强度（推荐 7.0-15.0）",
+      "seed: 随机种子（-1 为随机，其他值可复现结果）",
+      "width/height: 输出图片分辨率（必须为 64 的倍数）",
+      "model: 模型文件路径，相对于 SD 安装目录",
+      "prompt: 正向提示词",
+      "negative_prompt: 负向提示词（避免生成的内容）",
+      "修改时需更新 API 调用中的参数传递逻辑"
+    ],
+    "sampler_name": "DPM++ 2S a",
+    "scheduler": "Karras",
+    "steps": 50,
+    "cfg_scale": 8.0,
+    "seed": -1,
+    "width": 512,
+    "height": 512,
+    "model": "sd1.5\\sd_xl_base_1.0_0.9vae.safetensors",
+    "prompt": "",
+    "negative_prompt": "lowres, bad quality, deformed, blurry, worst quality"
+  }
+}
